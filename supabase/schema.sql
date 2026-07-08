@@ -89,11 +89,22 @@ create table public.lotes_cosecha (
 );
 
 -- ───────────────────────────────────────────────────────────────
--- 6. LOTES DE COYOLEO
+-- 6. GRUPOS DE COYOLEO (un registro puede tener varios años, igual que Cosecha)
+-- ───────────────────────────────────────────────────────────────
+create table public.grupos_coyoleo (
+  id            uuid primary key default uuid_generate_v4(),
+  registro_id   uuid not null references public.registros_planificacion(id) on delete cascade,
+  anio_siembra  int not null,
+  orden         int not null default 0,
+  created_at    timestamptz not null default now()
+);
+
+-- ───────────────────────────────────────────────────────────────
+-- 6b. LOTES DE COYOLEO
 -- ───────────────────────────────────────────────────────────────
 create table public.lotes_coyoleo (
   id          uuid primary key default uuid_generate_v4(),
-  registro_id uuid not null references public.registros_planificacion(id) on delete cascade,
+  grupo_id    uuid not null references public.grupos_coyoleo(id) on delete cascade,
   orden       int not null default 0,
   lote        text not null,
   ha          numeric(10,2) not null default 0,
@@ -121,6 +132,7 @@ alter table public.tabla_densidad         enable row level security;
 alter table public.registros_planificacion enable row level security;
 alter table public.grupos_siembra         enable row level security;
 alter table public.lotes_cosecha          enable row level security;
+alter table public.grupos_coyoleo         enable row level security;
 alter table public.lotes_coyoleo          enable row level security;
 
 -- Helper: obtener el usuario actual desde la tabla usuarios
@@ -183,6 +195,17 @@ create policy "coordinador_edita_borradores" on public.registros_planificacion
       and estado = 'pendiente')
     -- Admin edita todo
     or (get_current_user()).rol = 'admin'
+  )
+  with check (
+    -- No se vuelve a exigir estado='pendiente' sobre la fila NUEVA: solo se valida
+    -- que quien edita tenga permiso sobre el sector/registro (rol + propiedad).
+    ((get_current_user()).rol = 'coordinador'
+      and coordinador_id = (get_current_user()).id)
+    or ((get_current_user()).rol = 'zona_sur'
+      and sector between 1 and 6)
+    or ((get_current_user()).rol = 'zona_norte'
+      and sector between 7 and 12)
+    or (get_current_user()).rol = 'admin'
   );
 
 -- Grupos siembra: hereda acceso del registro padre
@@ -204,12 +227,22 @@ create policy "acceso_lotes_cosecha" on public.lotes_cosecha
     )
   );
 
--- Lotes coyoleo: hereda acceso del registro padre
-create policy "acceso_lotes_coyoleo" on public.lotes_coyoleo
+-- Grupos coyoleo: hereda acceso del registro padre
+create policy "acceso_grupos_coyoleo" on public.grupos_coyoleo
   for all using (
     exists (
       select 1 from public.registros_planificacion r
       where r.id = registro_id
+    )
+  );
+
+-- Lotes coyoleo: hereda acceso del grupo padre
+create policy "acceso_lotes_coyoleo" on public.lotes_coyoleo
+  for all using (
+    exists (
+      select 1 from public.grupos_coyoleo g
+      join public.registros_planificacion r on r.id = g.registro_id
+      where g.id = grupo_id
     )
   );
 

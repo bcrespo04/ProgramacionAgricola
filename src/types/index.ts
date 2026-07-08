@@ -54,13 +54,19 @@ export interface LoteCoyoleoForm {
   coy_cont: string;
 }
 
+export interface GrupoCoyoleoForm {
+  id: string;
+  anio_siembra: string;
+  lotes: LoteCoyoleoForm[];
+}
+
 export interface RegistroPlanificacionForm {
   fecha: string;
   sector: string;
   fiscal_cosecha: string;
   fiscal_coyoleo: string;
   grupos: GrupoSiembraForm[];
-  lotes_coyoleo: LoteCoyoleoForm[];
+  grupos_coyoleo: GrupoCoyoleoForm[];
 }
 
 // Registro completo desde Supabase
@@ -82,7 +88,7 @@ export interface RegistroPlanificacion {
   // joins opcionales
   coordinador?: Usuario;
   grupos_siembra?: GrupoSiembra[];
-  lotes_coyoleo?: LoteCoyoleo[];
+  grupos_coyoleo?: GrupoCoyoleo[];
 }
 
 export interface GrupoSiembra {
@@ -109,9 +115,17 @@ export interface LoteCosecha {
   evac_cont: number;
 }
 
-export interface LoteCoyoleo {
+export interface GrupoCoyoleo {
   id: string;
   registro_id: string;
+  anio_siembra: number;
+  orden: number;
+  lotes_coyoleo?: LoteCoyoleo[];
+}
+
+export interface LoteCoyoleo {
+  id: string;
+  grupo_id: string;
   orden: number;
   lote: string;
   ha: number;

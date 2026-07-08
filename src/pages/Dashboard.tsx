@@ -7,11 +7,17 @@ import {
 import { useAuth } from "../lib/auth";
 import { getRegistros } from "../lib/api";
 import { EstadoBadge, Spinner } from "../components/ui";
+import { TabBar } from "../components/layout/TabBar";
 import type { RegistroPlanificacion, EstadoRegistro } from "../types";
 
 const fmt2 = (v: number) => v.toFixed(2);
 
 function TarjetaRegistro({ r, onClick }: { r: RegistroPlanificacion; onClick: () => void }) {
+  const anios = Array.from(new Set((r.grupos_siembra ?? []).map(g => g.anio_siembra))).sort();
+  const totalLotes =
+    (r.grupos_siembra ?? []).reduce((a, g) => a + (g.lotes_cosecha?.length ?? 0), 0) +
+    (r.grupos_coyoleo ?? []).reduce((a, g) => a + (g.lotes_coyoleo?.length ?? 0), 0);
+
   return (
     <button onClick={onClick}
       className="w-full rounded-2xl bg-white border border-stone-200 px-4 py-3.5 text-left active:scale-[0.98] transition shadow-sm">
@@ -32,11 +38,14 @@ function TarjetaRegistro({ r, onClick }: { r: RegistroPlanificacion; onClick: ()
               <span className="text-[10px] text-red-500 font-medium">Ver comentario</span>
             )}
           </div>
-          <div className="flex gap-3 text-[11px] text-stone-500">
-            {r.densidad_calculada && <span>Dens <b className="text-stone-700">{r.densidad_calculada.toFixed(0)}</b></span>}
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-stone-500">
             {r.coordinador && (
               <span>Coord <b className="text-stone-700">{r.coordinador.nombre.split(" ")[0]}</b></span>
             )}
+            {anios.length > 0 && (
+              <span>Siembra <b className="text-stone-700">{anios.join(", ")}</b></span>
+            )}
+            <span>Lotes <b className="text-stone-700">{totalLotes}</b></span>
           </div>
         </div>
         <ChevronRight className="h-4 w-4 text-stone-300 shrink-0 mt-1" />
@@ -111,7 +120,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div className="px-4 py-5 space-y-5">
+      <div className="px-4 py-5 space-y-5 pb-24">
         {/* Alerta coordinador: rechazados */}
         {esCoord && rechazados.length > 0 && (
           <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-3">
@@ -166,10 +175,12 @@ export default function Dashboard() {
       {/* FAB — solo coordinador y admin */}
       {(esCoord || usuario.rol === "admin") && (
         <button onClick={() => navigate("/planificacion/nueva")}
-          className="fixed bottom-6 right-5 h-14 w-14 rounded-full bg-[#1A4D2E] shadow-xl shadow-[#1A4D2E]/30 flex items-center justify-center active:scale-95 transition">
+          className="fixed bottom-20 right-5 h-14 w-14 rounded-full bg-[#1A4D2E] shadow-xl shadow-[#1A4D2E]/30 flex items-center justify-center active:scale-95 transition z-30">
           <Plus className="h-6 w-6 text-white" />
         </button>
       )}
+
+      <TabBar />
     </div>
   );
 }

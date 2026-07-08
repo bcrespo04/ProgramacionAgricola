@@ -23,7 +23,12 @@ export async function getRegistros(filtros?: {
 }): Promise<RegistroPlanificacion[]> {
   let q = supabase
     .from("registros_planificacion")
-    .select(`*, coordinador:usuarios!coordinador_id(nombre,email,rol,sector)`)
+    .select(`
+      *,
+      coordinador:usuarios!coordinador_id(nombre,email,rol,sector),
+      grupos_siembra(anio_siembra, lotes_cosecha(id)),
+      grupos_coyoleo(anio_siembra, lotes_coyoleo(id))
+    `)
     .order("fecha", { ascending: false });
 
   if (filtros?.estado) q = q.eq("estado", filtros.estado);
@@ -41,7 +46,7 @@ export async function getRegistroCompleto(id: string): Promise<RegistroPlanifica
       *,
       coordinador:usuarios!coordinador_id(nombre,email,rol,sector),
       grupos_siembra(*, lotes_cosecha(*)),
-      lotes_coyoleo(*)
+      grupos_coyoleo(*, lotes_coyoleo(*))
     `)
     .eq("id", id)
     .single();
@@ -99,15 +104,23 @@ export async function crearRegistro(
     if (lErr) throw lErr;
   }
 
-  // 3. Lotes coyoleo
-  if (form.lotes_coyoleo.length) {
-    const coyInsert = form.lotes_coyoleo.map((l, li) => ({
-      registro_id: registroId,
-      orden:       li,
-      lote:        l.lote,
-      ha:          n(l.ha),
-      coy_emp:     n(l.coy_emp),
-      coy_cont:    n(l.coy_cont),
+  // 3. Grupos de siembra + lotes coyoleo
+  for (let gi = 0; gi < form.grupos_coyoleo.length; gi++) {
+    const g = form.grupos_coyoleo[gi];
+    const { data: grupo, error: gErr } = await supabase
+      .from("grupos_coyoleo")
+      .insert({ registro_id: registroId, anio_siembra: parseInt(g.anio_siembra), orden: gi })
+      .select("id")
+      .single();
+    if (gErr) throw gErr;
+
+    const coyInsert = g.lotes.map((l, li) => ({
+      grupo_id:  grupo.id,
+      orden:     li,
+      lote:      l.lote,
+      ha:        n(l.ha),
+      coy_emp:   n(l.coy_emp),
+      coy_cont:  n(l.coy_cont),
     }));
     const { error: cErr } = await supabase.from("lotes_coyoleo").insert(coyInsert);
     if (cErr) throw cErr;

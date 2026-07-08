@@ -5,6 +5,8 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import NuevaPlanificacion from "./pages/NuevaPlanificacion";
 import DetallePlanificacion from "./pages/DetallePlanificacion";
+import Ejecucion from "./pages/Ejecucion";
+import TablaDensidadView from "./pages/TablaDensidadView";
 
 export default function App() {
   return (
@@ -22,6 +24,8 @@ export default function App() {
             <DetallePlanificacion />
           </ProtectedRoute>
         } />
+        <Route path="/ejecucion" element={<ProtectedRoute><Ejecucion /></ProtectedRoute>} />
+        <Route path="/tabla-densidad" element={<ProtectedRoute><TablaDensidadView /></ProtectedRoute>} />
       </Routes>
     </AuthProvider>
   );
