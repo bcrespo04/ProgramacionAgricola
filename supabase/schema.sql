@@ -46,6 +46,8 @@ create table public.registros_planificacion (
                         check (estado in ('borrador','pendiente','aprobado','rechazado')),
   fiscal_cosecha      text,
   fiscal_coyoleo      text,
+  densidad_siembra    numeric(10,2),
+  peso_fruta          numeric(10,2),
   densidad_calculada  numeric(10,2),
   -- Aprobación
   zona_id             uuid references public.usuarios(id),

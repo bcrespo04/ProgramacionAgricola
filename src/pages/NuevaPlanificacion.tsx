@@ -9,7 +9,7 @@ import {
 } from "../components/ui";
 import { ComparativoTDC } from "../components/ComparativoTDC";
 import {
-  n, fmt, calcTM, calcDensidadGlobal, calcDensidadGrupo, totalesGrupo,
+  n, fmt, calcTM, calcDensidadIndependiente, totalesGrupo,
   totalesGlobales, interpolarTDC
 } from "../lib/calculations";
 import {
@@ -188,12 +188,15 @@ function GrupoCoyoleo({ grupo, onChange, onDelete, canDelete }: {
 }
 
 // ── Resumen por siembra con TDC ───────────────────────────────
-function ResumenSiembra({ grupo, tabla }: { grupo: GrupoSiembraForm; tabla: ReturnType<typeof useTablaDensidad>["tabla"] }) {
+function ResumenSiembra({ grupo, tabla, densidadGlobal }: {
+  grupo: GrupoSiembraForm;
+  tabla: ReturnType<typeof useTablaDensidad>["tabla"];
+  densidadGlobal: number;
+}) {
   const tot = totalesGrupo(grupo.lotes);
   const densProm = grupo.lotes.reduce((a, l) => a + n(l.densidad_palma), 0) / (grupo.lotes.length || 1);
   const pesoProm = grupo.lotes.reduce((a, l) => a + n(l.peso_fruta), 0) / (grupo.lotes.length || 1);
-  const densCalcGrupo = calcDensidadGrupo(grupo.lotes);
-  const tdc = interpolarTDC(tabla, grupo.anio_siembra, densProm);
+  const tdc = interpolarTDC(tabla, grupo.anio_siembra, densidadGlobal);
 
   const tmC     = tot.corteros > 0 ? tot.tm / tot.corteros : 0;
   const haC     = tot.corteros > 0 ? tot.ha / tot.corteros : 0;
@@ -241,27 +244,16 @@ function ResumenSiembra({ grupo, tabla }: { grupo: GrupoSiembraForm; tabla: Retu
           </div>
         </div>
 
-        {/* Fórmula densidad calculada del grupo */}
-        <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-3 py-2 text-[11px] text-stone-500">
-          <span className="font-mono">
-            Dens. siembra (prom) <b className="text-stone-700">{fmt(densProm, 0)}</b>
-            {" × "}RP total (suma) <b className="text-stone-700">{fmt(tot.rp, 2)}</b>
-            {" × "}Peso fruta (prom) <b className="text-stone-700">{fmt(pesoProm)}</b>
-            {" = "}
-            <b className="text-[#1A4D2E]">{fmt(densCalcGrupo, 0)}</b>
-          </span>
-        </div>
-
         {/* Comparativo TDC */}
         {tdc ? (
-          <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densProm, 0)}`} filas={[
+          <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densidadGlobal, 0)}`} filas={[
             { label: "Total corteros", real: tot.corteros, plan: cortPlan, decimales: 0 },
             { label: "TM/C",           real: tmC,          plan: tdc.tm_c },
             { label: "HA/C",           real: haC,          plan: tdc.ha_j },
           ]} />
         ) : (
           <p className="text-[11px] text-stone-400 text-center py-1">
-            Ingresa densidad en los lotes para ver el plan TDC
+            Ingresa la Densidad Siembra en Datos generales para ver el plan TDC
           </p>
         )}
       </div>
@@ -270,22 +262,17 @@ function ResumenSiembra({ grupo, tabla }: { grupo: GrupoSiembraForm; tabla: Retu
 }
 
 // ── Resumen por siembra de coyoleo con TDC ─────────────────────
-// La densidad usada para el plan TDC se toma del grupo de Cosecha
-// del mismo año de siembra (el coyoleo no captura densidad propia).
-function ResumenCoyoleo({ grupo, tabla, gruposCosecha }: {
+// La densidad usada para el plan TDC es la Densidad Siembra global del registro.
+function ResumenCoyoleo({ grupo, tabla, densidadGlobal }: {
   grupo: GrupoCoyoleoForm;
   tabla: ReturnType<typeof useTablaDensidad>["tabla"];
-  gruposCosecha: GrupoSiembraForm[];
+  densidadGlobal: number;
 }) {
   const totHA = grupo.lotes.reduce((a, l) => a + n(l.ha), 0);
   const totCoyoleros = grupo.lotes.reduce((a, l) => a + n(l.coy_emp) + n(l.coy_cont), 0);
   const haCoyReal = totCoyoleros > 0 ? totHA / totCoyoleros : 0;
 
-  const grupoCosecha = gruposCosecha.find(g => g.anio_siembra === grupo.anio_siembra);
-  const densProm = grupoCosecha
-    ? grupoCosecha.lotes.reduce((a, l) => a + n(l.densidad_palma), 0) / (grupoCosecha.lotes.length || 1)
-    : 0;
-  const tdc = grupoCosecha ? interpolarTDC(tabla, grupo.anio_siembra, densProm) : null;
+  const tdc = interpolarTDC(tabla, grupo.anio_siembra, densidadGlobal);
 
   return (
     <div className="rounded-2xl border border-blue-100 bg-white overflow-hidden">
@@ -319,13 +306,13 @@ function ResumenCoyoleo({ grupo, tabla, gruposCosecha }: {
         </div>
 
         {tdc ? (
-          <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densProm, 0)} (de Cosecha ${grupo.anio_siembra})`} filas={[
+          <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densidadGlobal, 0)}`} filas={[
             { label: "HA/Coyolero", real: haCoyReal, plan: tdc.ha_j },
             { label: "Sacos/Cy plan", real: null, plan: tdc.sacos_p },
           ]} />
         ) : (
           <p className="text-[11px] text-stone-400 text-center py-1">
-            No hay grupo de Cosecha {grupo.anio_siembra || "—"} en este registro para calcular el plan TDC
+            Ingresa la Densidad Siembra en Datos generales para ver el plan TDC
           </p>
         )}
       </div>
@@ -345,12 +332,14 @@ export default function NuevaPlanificacion() {
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
 
   const [form, setForm] = useState<RegistroPlanificacionForm>({
-    fecha:          new Date().toISOString().slice(0, 10),
-    sector:         String(usuario?.sector ?? ""),
-    fiscal_cosecha: "",
-    fiscal_coyoleo: "",
-    grupos:         [grupoInit()],
-    grupos_coyoleo: [grupoCoyInit()],
+    fecha:            new Date().toISOString().slice(0, 10),
+    sector:           String(usuario?.sector ?? ""),
+    fiscal_cosecha:   "",
+    fiscal_coyoleo:   "",
+    densidad_siembra: "",
+    peso_fruta:       "",
+    grupos:           [grupoInit()],
+    grupos_coyoleo:   [grupoCoyInit()],
   });
 
   const updGrupo = (id: string, g: GrupoSiembraForm) =>
@@ -368,18 +357,20 @@ export default function NuevaPlanificacion() {
     setForm(f => ({ ...f, grupos_coyoleo: [...f.grupos_coyoleo, grupoCoyInit()] }));
 
   const totGlobal  = useMemo(() => totalesGlobales(form.grupos), [form.grupos]);
-  const densCalc   = useMemo(() => calcDensidadGlobal(form.grupos), [form.grupos]);
+  const densCalc   = useMemo(
+    () => calcDensidadIndependiente(form.densidad_siembra, form.peso_fruta, totGlobal.rp),
+    [form.densidad_siembra, form.peso_fruta, totGlobal.rp]
+  );
   const totCoyoleo = useMemo(() => form.grupos_coyoleo.flatMap(g => g.lotes).reduce((acc, l) => ({
     ha: acc.ha + n(l.ha), coyoleros: acc.coyoleros + n(l.coy_emp) + n(l.coy_cont),
   }), { ha: 0, coyoleros: 0 }), [form.grupos_coyoleo]);
 
-  // Plan TDC global de cosecha: suma del plan de cada grupo (cada uno con su propia densidad interpolada)
+  // Plan TDC global de cosecha: suma del plan de cada grupo, todos con la misma Densidad Siembra global
   const cosechaPlanGlobal = useMemo(() => {
     let corterosPlan = 0, tmPlanPonderado = 0;
     form.grupos.forEach(g => {
       const tot = totalesGrupo(g.lotes);
-      const densProm = g.lotes.reduce((a, l) => a + n(l.densidad_palma), 0) / (g.lotes.length || 1);
-      const tdc = interpolarTDC(tabla, g.anio_siembra, densProm);
+      const tdc = interpolarTDC(tabla, g.anio_siembra, n(form.densidad_siembra));
       if (tdc && tot.ha > 0) {
         const cp = tot.ha / tdc.ha_j;
         corterosPlan += cp;
@@ -391,17 +382,15 @@ export default function NuevaPlanificacion() {
       haCPlan: corterosPlan > 0 ? totGlobal.ha / corterosPlan : 0,
       tmCPlan: corterosPlan > 0 ? tmPlanPonderado / corterosPlan : 0,
     };
-  }, [form.grupos, tabla, totGlobal.ha]);
+  }, [form.grupos, form.densidad_siembra, tabla, totGlobal.ha]);
 
-  // Plan TDC global de coyoleo: usa la densidad del grupo de cosecha del mismo año
+  // Plan TDC global de coyoleo: misma Densidad Siembra global del registro
   const coyoleoPlanGlobal = useMemo(() => {
     let coyolerosPlan = 0, sacosPlanPonderado = 0;
     form.grupos_coyoleo.forEach(g => {
       const totHA = g.lotes.reduce((a, l) => a + n(l.ha), 0);
-      const grupoCosecha = form.grupos.find(gc => gc.anio_siembra === g.anio_siembra);
-      if (!grupoCosecha || totHA <= 0) return;
-      const densProm = grupoCosecha.lotes.reduce((a, l) => a + n(l.densidad_palma), 0) / (grupoCosecha.lotes.length || 1);
-      const tdc = interpolarTDC(tabla, g.anio_siembra, densProm);
+      if (totHA <= 0) return;
+      const tdc = interpolarTDC(tabla, g.anio_siembra, n(form.densidad_siembra));
       if (tdc) {
         const cp = totHA / tdc.ha_j;
         coyolerosPlan += cp;
@@ -412,7 +401,7 @@ export default function NuevaPlanificacion() {
       haCyPlan:    coyolerosPlan > 0 ? totCoyoleo.ha / coyolerosPlan : 0,
       sacosCyPlan: coyolerosPlan > 0 ? sacosPlanPonderado / coyolerosPlan : 0,
     };
-  }, [form.grupos_coyoleo, form.grupos, tabla, totCoyoleo.ha]);
+  }, [form.grupos_coyoleo, form.densidad_siembra, tabla, totCoyoleo.ha]);
 
   async function handleGuardar() {
     if (!usuario) return;
@@ -421,8 +410,10 @@ export default function NuevaPlanificacion() {
     try {
       await crearRegistro(form, usuario.id);
       navigate("/");
-    } catch (e) {
-      setErrorGuardar(e instanceof Error ? e.message : "Error al guardar");
+    } catch (e: any) {
+      console.error(e);
+      const msg = e?.message || e?.error_description || e?.hint || JSON.stringify(e);
+      setErrorGuardar(msg || "No se pudo guardar el registro. Intenta de nuevo.");
     } finally {
       setGuardando(false);
     }
@@ -467,7 +458,7 @@ export default function NuevaPlanificacion() {
                 </span>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 pt-3">
+            <div className="grid grid-cols-2 gap-3 pt-3 pb-3 border-b border-stone-100">
               <div>
                 <span className="text-[9px] text-stone-400 font-bold uppercase tracking-widest">Fiscal cosecha</span>
                 <p className="text-[13px] font-black text-stone-800">{form.fiscal_cosecha || "—"}</p>
@@ -476,6 +467,17 @@ export default function NuevaPlanificacion() {
                 <span className="text-[9px] text-stone-400 font-bold uppercase tracking-widest">Fiscal coyoleo</span>
                 <p className="text-[13px] font-black text-stone-800">{form.fiscal_coyoleo || "—"}</p>
               </div>
+            </div>
+
+            {/* Fórmula densidad calculada del registro */}
+            <div className="pt-3 text-[11px] text-stone-500">
+              <span className="font-mono">
+                Densidad Siembra <b className="text-stone-700">{fmt(n(form.densidad_siembra), 0)}</b>
+                {" × "}RP total (suma) <b className="text-stone-700">{fmt(totGlobal.rp, 2)}</b>
+                {" × "}Peso fruta <b className="text-stone-700">{fmt(n(form.peso_fruta))}</b>
+                {" = "}
+                <b className="text-[#1A4D2E]">{fmt(densCalc, 0)}</b>
+              </span>
             </div>
           </div>
 
@@ -501,7 +503,9 @@ export default function NuevaPlanificacion() {
               Detalle por siembra · comparativo TDC
             </span>
             <div className="space-y-3">
-              {form.grupos.map(g => <ResumenSiembra key={g.id} grupo={g} tabla={tabla} />)}
+              {form.grupos.map(g => (
+                <ResumenSiembra key={g.id} grupo={g} tabla={tabla} densidadGlobal={n(form.densidad_siembra)} />
+              ))}
             </div>
           </div>
 
@@ -512,7 +516,7 @@ export default function NuevaPlanificacion() {
             </span>
             <div className="space-y-3">
               {form.grupos_coyoleo.map(g => (
-                <ResumenCoyoleo key={g.id} grupo={g} tabla={tabla} gruposCosecha={form.grupos} />
+                <ResumenCoyoleo key={g.id} grupo={g} tabla={tabla} densidadGlobal={n(form.densidad_siembra)} />
               ))}
             </div>
           </div>
@@ -593,6 +597,12 @@ export default function NuevaPlanificacion() {
             onChange={v => setForm(f => ({ ...f, fiscal_cosecha: v }))} placeholder="Nombre" />
           <TextInput label="Fiscal coyoleo" value={form.fiscal_coyoleo}
             onChange={v => setForm(f => ({ ...f, fiscal_coyoleo: v }))} placeholder="Nombre" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <NumInput label="Densidad Siembra" value={form.densidad_siembra}
+            onChange={v => setForm(f => ({ ...f, densidad_siembra: v }))} />
+          <NumInput label="Peso fruta" value={form.peso_fruta}
+            onChange={v => setForm(f => ({ ...f, peso_fruta: v }))} />
         </div>
 
         {/* Grupos cosecha */}

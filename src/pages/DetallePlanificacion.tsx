@@ -9,7 +9,7 @@ import { getRegistroCompleto, aprobarRegistro, rechazarRegistro } from "../lib/a
 import { useTablaDensidad } from "../lib/useTablaDensidad";
 import { EstadoBadge, Spinner } from "../components/ui";
 import { ComparativoTDC } from "../components/ComparativoTDC";
-import { interpolarTDC, fmt, calcDensidadGrupo } from "../lib/calculations";
+import { interpolarTDC, fmt } from "../lib/calculations";
 import type { RegistroPlanificacion } from "../types";
 
 export default function DetallePlanificacion() {
@@ -41,18 +41,19 @@ export default function DetallePlanificacion() {
   const puedeEditar  = esCoord && registro.coordinador_id === usuario?.id && (registro.estado === "rechazado" || registro.estado === "borrador");
 
   // Comparativo TDC global del registro: suma real de todos los grupos vs plan
-  // de cada grupo (cada uno con su propia densidad interpolada).
+  // de cada grupo (todos con la misma Densidad Siembra del registro).
+  const densidadGlobal = registro.densidad_siembra ?? 0;
   const gruposSiembra = registro.grupos_siembra ?? [];
   const totCorteroGlobal = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.cort_emp + l.cort_cont, 0), 0);
   const totHAGlobal      = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.ha, 0), 0);
   const totTMGlobal      = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.tm, 0), 0);
+  const totRPGlobal      = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.rp, 0), 0);
 
   let corterosPlanGlobal = 0, tmPlanPonderadoGlobal = 0;
   gruposSiembra.forEach(g => {
     const lotes = g.lotes_cosecha ?? [];
     const ha = lotes.reduce((a, l) => a + l.ha, 0);
-    const densProm = lotes.reduce((a, l) => a + l.densidad_palma, 0) / (lotes.length || 1);
-    const tdcG = interpolarTDC(tabla, g.anio_siembra, densProm);
+    const tdcG = interpolarTDC(tabla, g.anio_siembra, densidadGlobal);
     if (tdcG && ha > 0) {
       const cp = ha / tdcG.ha_j;
       corterosPlanGlobal += cp;
@@ -69,11 +70,8 @@ export default function DetallePlanificacion() {
   let coyolerosPlanGlobal = 0, sacosPlanPonderadoGlobal = 0;
   gruposCoyoleo.forEach(g => {
     const ha = (g.lotes_coyoleo ?? []).reduce((a, l) => a + l.ha, 0);
-    const grupoCosechaMismoAnio = gruposSiembra.find(gc => gc.anio_siembra === g.anio_siembra);
-    if (!grupoCosechaMismoAnio || ha <= 0) return;
-    const lotesCosecha = grupoCosechaMismoAnio.lotes_cosecha ?? [];
-    const densProm = lotesCosecha.reduce((a, l) => a + l.densidad_palma, 0) / (lotesCosecha.length || 1);
-    const tdcG = interpolarTDC(tabla, g.anio_siembra, densProm);
+    if (ha <= 0) return;
+    const tdcG = interpolarTDC(tabla, g.anio_siembra, densidadGlobal);
     if (tdcG) {
       const cp = ha / tdcG.ha_j;
       coyolerosPlanGlobal += cp;
@@ -90,8 +88,10 @@ export default function DetallePlanificacion() {
     try {
       await aprobarRegistro(registro.id, usuario.id);
       navigate("/");
-    } catch (e) {
-      setErrorAccion(e instanceof Error ? e.message : "No se pudo aprobar el registro");
+    } catch (e: any) {
+      console.error(e);
+      const msg = e?.message || e?.error_description || e?.hint || JSON.stringify(e);
+      setErrorAccion(msg || "No se pudo aprobar el registro. Intenta de nuevo.");
     } finally {
       setProcesando(false);
     }
@@ -104,8 +104,10 @@ export default function DetallePlanificacion() {
     try {
       await rechazarRegistro(registro.id, usuario.id, comentario);
       navigate("/");
-    } catch (e) {
-      setErrorAccion(e instanceof Error ? e.message : "No se pudo rechazar el registro");
+    } catch (e: any) {
+      console.error(e);
+      const msg = e?.message || e?.error_description || e?.hint || JSON.stringify(e);
+      setErrorAccion(msg || "No se pudo rechazar el registro. Intenta de nuevo.");
     } finally {
       setProcesando(false);
     }
@@ -188,6 +190,17 @@ export default function DetallePlanificacion() {
               <span className="text-[14px] font-black text-stone-800">{registro.fiscal_coyoleo ?? "—"}</span>
             </div>
           </div>
+
+          {/* Fórmula densidad calculada del registro */}
+          <div className="pt-3 text-[11px] text-stone-500">
+            <span className="font-mono">
+              Densidad Siembra <b className="text-stone-700">{fmt(registro.densidad_siembra ?? 0, 0)}</b>
+              {" × "}RP total (suma) <b className="text-stone-700">{fmt(totRPGlobal, 2)}</b>
+              {" × "}Peso fruta <b className="text-stone-700">{fmt(registro.peso_fruta ?? 0)}</b>
+              {" = "}
+              <b className="text-[#1A4D2E]">{fmt(registro.densidad_calculada ?? 0, 0)}</b>
+            </span>
+          </div>
         </div>
 
         {/* Comparativo TDC global del registro */}
@@ -216,8 +229,7 @@ export default function DetallePlanificacion() {
           const totEvac = lotes.reduce((a, l) => a + l.evac_emp + l.evac_cont, 0);
           const densProm = lotes.reduce((a, l) => a + l.densidad_palma, 0) / (lotes.length || 1);
           const pesoProm = lotes.reduce((a, l) => a + l.peso_fruta, 0) / (lotes.length || 1);
-          const densCalcGrupo = calcDensidadGrupo(lotes);
-          const tdc = interpolarTDC(tabla, grupo.anio_siembra, densProm);
+          const tdc = interpolarTDC(tabla, grupo.anio_siembra, densidadGlobal);
           const tmC = totCort > 0 ? totTM / totCort : 0;
           const haC = totCort > 0 ? totHA / totCort : 0;
           const cortPlan = tdc && totHA > 0 ? totHA / tdc.ha_j : 0;
@@ -262,21 +274,16 @@ export default function DetallePlanificacion() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-3 py-2 text-[11px] text-stone-500">
-                  <span className="font-mono">
-                    Dens. siembra (prom) <b className="text-stone-700">{fmt(densProm, 0)}</b>
-                    {" × "}RP total (suma) <b className="text-stone-700">{fmt(totRP, 2)}</b>
-                    {" × "}Peso fruta (prom) <b className="text-stone-700">{fmt(pesoProm)}</b>
-                    {" = "}
-                    <b className="text-[#1A4D2E]">{fmt(densCalcGrupo, 0)}</b>
-                  </span>
-                </div>
-                {tdc && (
-                  <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densProm, 0)}`} filas={[
+                {tdc ? (
+                  <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densidadGlobal, 0)}`} filas={[
                     { label: "Total corteros", real: totCort, plan: cortPlan, decimales: 0 },
                     { label: "TM/C",           real: tmC,     plan: tdc.tm_c },
                     { label: "HA/C",           real: haC,     plan: tdc.ha_j },
                   ]} />
+                ) : (
+                  <p className="text-[11px] text-stone-400 text-center py-1">
+                    Ingresa la Densidad Siembra en Datos generales para ver el plan TDC
+                  </p>
                 )}
               </div>
             </div>
@@ -290,12 +297,7 @@ export default function DetallePlanificacion() {
           const totCoyoleros = lotesCoy.reduce((a, l) => a + l.coy_emp + l.coy_cont, 0);
           const haCoyReal = totCoyoleros > 0 ? totHACoy / totCoyoleros : 0;
 
-          const grupoCosecha = registro.grupos_siembra?.find(g => g.anio_siembra === grupoCoy.anio_siembra);
-          const lotesCosecha = grupoCosecha?.lotes_cosecha ?? [];
-          const densPromCoy = lotesCosecha.length
-            ? lotesCosecha.reduce((a, l) => a + l.densidad_palma, 0) / lotesCosecha.length
-            : 0;
-          const tdcCoy = grupoCosecha ? interpolarTDC(tabla, grupoCoy.anio_siembra, densPromCoy) : null;
+          const tdcCoy = interpolarTDC(tabla, grupoCoy.anio_siembra, densidadGlobal);
 
           return (
             <div key={grupoCoy.id} className="rounded-2xl border border-blue-100 bg-white overflow-hidden">
@@ -325,13 +327,13 @@ export default function DetallePlanificacion() {
                   </div>
                 </div>
                 {tdcCoy ? (
-                  <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densPromCoy, 0)} (de Cosecha ${grupoCoy.anio_siembra})`} filas={[
+                  <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densidadGlobal, 0)}`} filas={[
                     { label: "HA/Coyolero",   real: haCoyReal, plan: tdcCoy.ha_j },
                     { label: "Sacos/Cy plan", real: null,      plan: tdcCoy.sacos_p },
                   ]} />
                 ) : (
                   <p className="text-[11px] text-stone-400 text-center py-1">
-                    No hay grupo de Cosecha {grupoCoy.anio_siembra} en este registro para calcular el plan TDC
+                    Ingresa la Densidad Siembra en Datos generales para ver el plan TDC
                   </p>
                 )}
               </div>

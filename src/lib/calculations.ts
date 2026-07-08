@@ -78,20 +78,16 @@ export function totalesGlobales(grupos: GrupoSiembraForm[]) {
   }, { ha: 0, rp: 0, tm: 0, corteros: 0, evacuadores: 0 });
 }
 
-type LoteDensidadInput = { densidad_palma: string | number; peso_fruta: string | number; rp: string | number };
-
-/** Densidad calculada de un grupo = densidad_promedio × Σ RP × peso_promedio */
-export function calcDensidadGrupo(lotes: LoteDensidadInput[]): number {
-  if (!lotes.length) return 0;
-  const densProm = lotes.reduce((a, l) => a + n(l.densidad_palma), 0) / lotes.length;
-  const sumRP    = lotes.reduce((a, l) => a + n(l.rp), 0);
-  const pesoProm = lotes.reduce((a, l) => a + n(l.peso_fruta), 0) / lotes.length;
-  return densProm * sumRP * pesoProm;
-}
-
-/** Densidad calculada global = densidad_promedio × Σ RP × peso_promedio de todos los lotes */
-export function calcDensidadGlobal(grupos: GrupoSiembraForm[]): number {
-  return calcDensidadGrupo(grupos.flatMap(g => g.lotes));
+/**
+ * Densidad calculada del registro completo = Densidad Siembra (manual) ×
+ * RP total (suma de todos los grupos) × Peso fruta (manual)
+ */
+export function calcDensidadIndependiente(
+  densidadSiembra: string | number,
+  pesoFruta: string | number,
+  rpTotal: number
+): number {
+  return n(densidadSiembra) * rpTotal * n(pesoFruta);
 }
 
 /** Color del semáforo según % cumplimiento */

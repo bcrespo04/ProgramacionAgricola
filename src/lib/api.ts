@@ -3,7 +3,7 @@ import type {
   TablaDensidad, RegistroPlanificacion,
   RegistroPlanificacionForm, EstadoRegistro
 } from "../types";
-import { calcTM, calcDensidadGlobal, n } from "./calculations";
+import { calcDensidadIndependiente, totalesGlobales, n } from "./calculations";
 
 // ── Tabla densidad ─────────────────────────────────────────────
 export async function getTablaDensidad(): Promise<TablaDensidad[]> {
@@ -58,7 +58,8 @@ export async function crearRegistro(
   form: RegistroPlanificacionForm,
   coordinadorId: string
 ): Promise<string> {
-  const densidadCalc = calcDensidadGlobal(form.grupos);
+  const rpTotal = totalesGlobales(form.grupos).rp;
+  const densidadCalc = calcDensidadIndependiente(form.densidad_siembra, form.peso_fruta, rpTotal);
 
   // 1. Registro principal
   const { data: reg, error: regErr } = await supabase
@@ -70,6 +71,8 @@ export async function crearRegistro(
       estado:             "pendiente",
       fiscal_cosecha:     form.fiscal_cosecha,
       fiscal_coyoleo:     form.fiscal_coyoleo,
+      densidad_siembra:   n(form.densidad_siembra),
+      peso_fruta:         n(form.peso_fruta),
       densidad_calculada: densidadCalc,
     })
     .select("id")

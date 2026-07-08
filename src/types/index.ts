@@ -65,6 +65,8 @@ export interface RegistroPlanificacionForm {
   sector: string;
   fiscal_cosecha: string;
   fiscal_coyoleo: string;
+  densidad_siembra: string;
+  peso_fruta: string;
   grupos: GrupoSiembraForm[];
   grupos_coyoleo: GrupoCoyoleoForm[];
 }
@@ -78,6 +80,8 @@ export interface RegistroPlanificacion {
   estado: EstadoRegistro;
   fiscal_cosecha: string | null;
   fiscal_coyoleo: string | null;
+  densidad_siembra: number | null;
+  peso_fruta: number | null;
   densidad_calculada: number | null;
   zona_id: string | null;
   comentario_zona: string | null;
