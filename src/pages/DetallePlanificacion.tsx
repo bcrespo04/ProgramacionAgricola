@@ -47,7 +47,6 @@ export default function DetallePlanificacion() {
   const totCorteroGlobal = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.cort_emp + l.cort_cont, 0), 0);
   const totHAGlobal      = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.ha, 0), 0);
   const totTMGlobal      = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.tm, 0), 0);
-  const totRPGlobal      = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.rp, 0), 0);
 
   let corterosPlanGlobal = 0, tmPlanPonderadoGlobal = 0;
   gruposSiembra.forEach(g => {
@@ -189,17 +188,6 @@ export default function DetallePlanificacion() {
               <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400 block">Fiscal Coy.</span>
               <span className="text-[14px] font-black text-stone-800">{registro.fiscal_coyoleo ?? "—"}</span>
             </div>
-          </div>
-
-          {/* Fórmula densidad calculada del registro */}
-          <div className="pt-3 text-[11px] text-stone-500">
-            <span className="font-mono">
-              Densidad Siembra <b className="text-stone-700">{fmt(registro.densidad_siembra ?? 0, 0)}</b>
-              {" × "}RP total (suma) <b className="text-stone-700">{fmt(totRPGlobal, 2)}</b>
-              {" × "}Peso fruta <b className="text-stone-700">{fmt(registro.peso_fruta ?? 0)}</b>
-              {" = "}
-              <b className="text-[#1A4D2E]">{fmt(registro.densidad_calculada ?? 0, 0)}</b>
-            </span>
           </div>
         </div>
 

@@ -458,7 +458,7 @@ export default function NuevaPlanificacion() {
                 </span>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 pt-3 pb-3 border-b border-stone-100">
+            <div className="grid grid-cols-2 gap-3 pt-3">
               <div>
                 <span className="text-[9px] text-stone-400 font-bold uppercase tracking-widest">Fiscal cosecha</span>
                 <p className="text-[13px] font-black text-stone-800">{form.fiscal_cosecha || "—"}</p>
@@ -467,17 +467,6 @@ export default function NuevaPlanificacion() {
                 <span className="text-[9px] text-stone-400 font-bold uppercase tracking-widest">Fiscal coyoleo</span>
                 <p className="text-[13px] font-black text-stone-800">{form.fiscal_coyoleo || "—"}</p>
               </div>
-            </div>
-
-            {/* Fórmula densidad calculada del registro */}
-            <div className="pt-3 text-[11px] text-stone-500">
-              <span className="font-mono">
-                Densidad Siembra <b className="text-stone-700">{fmt(n(form.densidad_siembra), 0)}</b>
-                {" × "}RP total (suma) <b className="text-stone-700">{fmt(totGlobal.rp, 2)}</b>
-                {" × "}Peso fruta <b className="text-stone-700">{fmt(n(form.peso_fruta))}</b>
-                {" = "}
-                <b className="text-[#1A4D2E]">{fmt(densCalc, 0)}</b>
-              </span>
             </div>
           </div>
 

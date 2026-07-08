@@ -5,7 +5,7 @@ import { TabBar } from "../components/layout/TabBar";
 import { fmt } from "../lib/calculations";
 
 export default function TablaDensidadView() {
-  const { tabla, cargando, error } = useTablaDensidad();
+  const { tabla, cargando, refrescando, error, refrescar } = useTablaDensidad();
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] pb-24">
@@ -16,8 +16,16 @@ export default function TablaDensidadView() {
             Programación Agrícola
           </span>
         </div>
-        <h1 className="text-white text-2xl font-black">Tabla Densidad</h1>
-        <p className="text-emerald-400 text-[12px]">Consulta de referencia · solo lectura</p>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h1 className="text-white text-2xl font-black">Tabla Densidad</h1>
+            <p className="text-emerald-400 text-[12px]">Consulta de referencia · solo lectura</p>
+          </div>
+          <button onClick={() => refrescar()} disabled={refrescando || cargando}
+            className="shrink-0 rounded-full bg-white/10 px-3 py-2 text-[11px] font-bold text-emerald-300 flex items-center gap-1.5 active:scale-95 transition disabled:opacity-60">
+            🔄 {refrescando ? "Actualizando..." : "Actualizar"}
+          </button>
+        </div>
       </div>
 
       <div className="px-4 py-4">
