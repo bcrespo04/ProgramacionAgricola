@@ -80,14 +80,16 @@ export function totalesGlobales(grupos: GrupoSiembraForm[]) {
 
 /**
  * Densidad calculada del registro completo = Densidad Siembra (manual) ×
- * RP total (suma de todos los grupos) × Peso fruta (manual)
+ * RP promedio (de todos los lotes de cosecha del registro) × Peso fruta (manual)
  */
 export function calcDensidadIndependiente(
   densidadSiembra: string | number,
   pesoFruta: string | number,
-  rpTotal: number
+  lotesTodasLasSiembras: { rp: string | number }[]
 ): number {
-  return n(densidadSiembra) * rpTotal * n(pesoFruta);
+  const rps = lotesTodasLasSiembras.map(l => n(l.rp));
+  const rpProm = rps.length ? rps.reduce((a, b) => a + b, 0) / rps.length : 0;
+  return n(densidadSiembra) * rpProm * n(pesoFruta);
 }
 
 /** Color del semáforo según % cumplimiento */

@@ -358,8 +358,8 @@ export default function NuevaPlanificacion() {
 
   const totGlobal  = useMemo(() => totalesGlobales(form.grupos), [form.grupos]);
   const densCalc   = useMemo(
-    () => calcDensidadIndependiente(form.densidad_siembra, form.peso_fruta, totGlobal.rp),
-    [form.densidad_siembra, form.peso_fruta, totGlobal.rp]
+    () => calcDensidadIndependiente(form.densidad_siembra, form.peso_fruta, form.grupos.flatMap(g => g.lotes)),
+    [form.densidad_siembra, form.peso_fruta, form.grupos]
   );
   const totCoyoleo = useMemo(() => form.grupos_coyoleo.flatMap(g => g.lotes).reduce((acc, l) => ({
     ha: acc.ha + n(l.ha), coyoleros: acc.coyoleros + n(l.coy_emp) + n(l.coy_cont),
