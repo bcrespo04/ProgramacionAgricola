@@ -189,6 +189,20 @@ export async function rechazarRegistro(id: string, zonaId: string, comentario: s
   if (error) throw error;
 }
 
+// Revierte un registro aprobado de vuelta a la bandeja de revisión.
+export async function revertirRegistro(id: string, comentario?: string): Promise<void> {
+  const { error } = await supabase
+    .from("registros_planificacion")
+    .update({
+      estado: "pendiente",
+      zona_id: null,
+      fecha_revision: null,
+      comentario_zona: comentario?.trim() || null,
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 // Borra el registro completo (solo admin, según RLS). Las tablas hijas
 // (grupos_siembra, grupos_coyoleo y sus lotes) se limpian por cascada.
 export async function eliminarRegistro(id: string): Promise<void> {

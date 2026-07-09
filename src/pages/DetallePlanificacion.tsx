@@ -2,10 +2,10 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ChevronLeft, CheckCircle2, XCircle, Edit3, Send,
-  Clock, AlertCircle, Trash2
+  Clock, AlertCircle, Trash2, RotateCcw
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
-import { getRegistroCompleto, aprobarRegistro, rechazarRegistro, eliminarRegistro } from "../lib/api";
+import { getRegistroCompleto, aprobarRegistro, rechazarRegistro, eliminarRegistro, revertirRegistro } from "../lib/api";
 import { useTablaDensidad } from "../lib/useTablaDensidad";
 import { EstadoBadge, Spinner } from "../components/ui";
 import { ComparativoTDC } from "../components/ComparativoTDC";
@@ -14,7 +14,7 @@ import {
   type FilaLoteCosechaConsolidada, type FilaLoteCoyoleoConsolidada
 } from "../components/TablasConsolidadas";
 import { interpolarTDC, calcDensidadFs, calcSacosCyReal } from "../lib/calculations";
-import type { RegistroPlanificacion } from "../types";
+import { SECTORES_ZONA_SUR, SECTORES_ZONA_NORTE, type RegistroPlanificacion } from "../types";
 
 export default function DetallePlanificacion() {
   const { id } = useParams<{ id: string }>();
@@ -31,6 +31,10 @@ export default function DetallePlanificacion() {
   const [modalEliminar, setModalEliminar] = useState(false);
   const [eliminando, setEliminando] = useState(false);
   const [errorEliminar, setErrorEliminar] = useState<string | null>(null);
+  const [modalRevertir, setModalRevertir] = useState(false);
+  const [comentarioRevertir, setComentarioRevertir] = useState("");
+  const [revirtiendo, setRevirtiendo] = useState(false);
+  const [errorRevertir, setErrorRevertir] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -45,7 +49,13 @@ export default function DetallePlanificacion() {
   const esZona  = usuario?.rol === "zona_sur" || usuario?.rol === "zona_norte";
   const esCoord = usuario?.rol === "coordinador";
   const esAdmin = usuario?.rol === "admin";
-  const puedeAprobar = esZona && registro.estado === "pendiente";
+  // Admin gestiona cualquier sector; zona sur/norte solo los sectores de su zona.
+  const puedeGestionarSector =
+    esAdmin ||
+    (usuario?.rol === "zona_sur" && (SECTORES_ZONA_SUR as readonly number[]).includes(registro.sector)) ||
+    (usuario?.rol === "zona_norte" && (SECTORES_ZONA_NORTE as readonly number[]).includes(registro.sector));
+  const puedeAprobar  = puedeGestionarSector && registro.estado === "pendiente";
+  const puedeRevertir = puedeGestionarSector && registro.estado === "aprobado";
   const puedeEditar  = esCoord && registro.coordinador_id === usuario?.id && (registro.estado === "rechazado" || registro.estado === "borrador");
 
   // Comparativo TDC global del registro: suma real de todos los grupos vs plan
@@ -164,6 +174,22 @@ export default function DetallePlanificacion() {
       setErrorEliminar(msg || "No se pudo eliminar el registro. Intenta de nuevo.");
     } finally {
       setEliminando(false);
+    }
+  }
+
+  async function handleRevertir() {
+    if (!registro) return;
+    setRevirtiendo(true);
+    setErrorRevertir(null);
+    try {
+      await revertirRegistro(registro.id, comentarioRevertir);
+      navigate("/");
+    } catch (e: any) {
+      console.error(e);
+      const msg = e?.message || e?.error_description || e?.hint || JSON.stringify(e);
+      setErrorRevertir(msg || "No se pudo revertir el registro. Intenta de nuevo.");
+    } finally {
+      setRevirtiendo(false);
     }
   }
 
@@ -286,12 +312,20 @@ export default function DetallePlanificacion() {
         </div>
 
         {/* Zona de administración — separada de las acciones normales del flujo */}
-        {esAdmin && (
-          <div className="pt-4 mt-2 border-t border-stone-200 flex justify-center">
-            <button onClick={() => setModalEliminar(true)}
-              className="text-[12px] font-bold text-red-500 flex items-center gap-1.5 px-3 py-2">
-              <Trash2 className="h-3.5 w-3.5" /> Eliminar registro
-            </button>
+        {(puedeRevertir || esAdmin) && (
+          <div className="pt-4 mt-2 border-t border-stone-200 flex flex-col items-center gap-2">
+            {puedeRevertir && (
+              <button onClick={() => setModalRevertir(true)}
+                className="text-[12px] font-bold text-amber-600 flex items-center gap-1.5 px-3 py-2">
+                <RotateCcw className="h-3.5 w-3.5" /> Revertir a pendiente
+              </button>
+            )}
+            {esAdmin && (
+              <button onClick={() => setModalEliminar(true)}
+                className="text-[12px] font-bold text-red-500 flex items-center gap-1.5 px-3 py-2">
+                <Trash2 className="h-3.5 w-3.5" /> Eliminar registro
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -323,6 +357,43 @@ export default function DetallePlanificacion() {
               <button onClick={handleEliminar} disabled={eliminando}
                 className="flex-1 rounded-2xl bg-red-600 py-3 text-white font-bold text-[13px] flex items-center justify-center gap-1.5 disabled:opacity-60">
                 <Trash2 className="h-3.5 w-3.5" /> {eliminando ? "Eliminando..." : "Sí, eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmación revertir a pendiente */}
+      {modalRevertir && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 space-y-4">
+            <div>
+              <h2 className="text-[15px] font-black text-stone-900">Revertir a pendiente</h2>
+              <p className="text-[12px] text-stone-500 mt-1">
+                Sector {registro.sector} · {fechaFmt}
+                {registro.coordinador && <> · Coordinador: {registro.coordinador.nombre}</>}
+              </p>
+            </div>
+            <p className="text-[13px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-3 leading-relaxed">
+              ¿Revertir este registro a pendiente? Volverá a la bandeja de revisión.
+            </p>
+            <textarea value={comentarioRevertir} onChange={e => setComentarioRevertir(e.target.value)}
+              placeholder="Comentario (opcional)..."
+              rows={3}
+              className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3.5 py-2.5 text-[13px] text-stone-900 outline-none focus:border-amber-500 resize-none" />
+            {errorRevertir && (
+              <p className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3.5 py-2.5">
+                {errorRevertir}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => { setModalRevertir(false); setErrorRevertir(null); setComentarioRevertir(""); }} disabled={revirtiendo}
+                className="flex-1 rounded-2xl border-2 border-stone-300 py-3 text-stone-600 font-bold text-[13px]">
+                Cancelar
+              </button>
+              <button onClick={handleRevertir} disabled={revirtiendo}
+                className="flex-1 rounded-2xl bg-amber-500 py-3 text-white font-bold text-[13px] flex items-center justify-center gap-1.5 disabled:opacity-60">
+                <RotateCcw className="h-3.5 w-3.5" /> {revirtiendo ? "Revirtiendo..." : "Sí, revertir"}
               </button>
             </div>
           </div>
