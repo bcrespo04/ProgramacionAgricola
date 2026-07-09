@@ -13,8 +13,8 @@ import {
   type FilaLoteCosechaConsolidada, type FilaLoteCoyoleoConsolidada
 } from "../components/TablasConsolidadas";
 import {
-  n, fmt, calcTM, calcDensidadIndependiente, calcDensidadFs, calcSacosCyReal, totalesGrupo,
-  totalesGlobales, interpolarTDC
+  n, fmt, calcTM, calcDensidadIndependiente, calcDensidadFs, calcSacosCyReal,
+  totalesGlobales, buscarFilaCercana, interpolarPorSector
 } from "../lib/calculations";
 import {
   EDADES_SIEMBRA,
@@ -69,7 +69,7 @@ function grupoCoyoleoAForm(g: GrupoCoyoleo): GrupoCoyoleoForm {
 
 function registroAForm(r: RegistroPlanificacion): RegistroPlanificacionForm {
   return {
-    fecha: r.fecha,
+    fecha_ejecucion: r.fecha_ejecucion ?? "",
     sector: String(r.sector),
     fiscal_cosecha: r.fiscal_cosecha ?? "",
     fiscal_coyoleo: r.fiscal_coyoleo ?? "",
@@ -260,7 +260,7 @@ export default function NuevaPlanificacion() {
   const [registroOriginal, setRegistroOriginal] = useState<RegistroPlanificacion | null>(null);
 
   const [form, setForm] = useState<RegistroPlanificacionForm>({
-    fecha:            new Date().toISOString().slice(0, 10),
+    fecha_ejecucion:  "",
     sector:           String(usuario?.sector ?? ""),
     fiscal_cosecha:   "",
     fiscal_coyoleo:   "",
@@ -351,43 +351,32 @@ export default function NuevaPlanificacion() {
     })));
   }, [form.grupos_coyoleo]);
 
-  // Plan TDC global de cosecha: suma del plan de cada grupo, todos con la misma Densidad Siembra global
+  // Plan TDC global de cosecha: una sola búsqueda por sector (ya no varía por
+  // grupo/año), con la fila más cercana a la Densidad Rac calculada.
   const cosechaPlanGlobal = useMemo(() => {
-    let corterosPlan = 0, tmPlanPonderado = 0;
-    form.grupos.forEach(g => {
-      const tot = totalesGrupo(g.lotes);
-      const tdc = interpolarTDC(tabla, g.anio_siembra, n(form.densidad_siembra));
-      if (tdc && tot.ha > 0) {
-        const cp = tot.ha / tdc.ha_j;
-        corterosPlan += cp;
-        tmPlanPonderado += tdc.tm_c * cp;
-      }
-    });
+    const fila = buscarFilaCercana(tabla, n(form.sector), densCalc);
     return {
-      corterosPlan,
-      haCPlan: corterosPlan > 0 ? totGlobal.ha / corterosPlan : 0,
-      tmCPlan: corterosPlan > 0 ? tmPlanPonderado / corterosPlan : 0,
+      corterosPlan: fila ? Math.round(totGlobal.ha / fila.ha_j) : null,
+      haCPlan: fila?.ha_j ?? null,
+      tmCPlan: fila?.tm_c ?? null,
     };
-  }, [form.grupos, form.densidad_siembra, tabla, totGlobal.ha]);
+  }, [tabla, form.sector, densCalc, totGlobal.ha]);
 
-  // Plan TDC global de coyoleo: misma Densidad Siembra global del registro
+  // Plan TDC global de coyoleo: densidad equivalente = Densidad Fs ÷ 8.5%.
+  // Coyoleros Plan = sacos reales totales / Sacos-por-Coyolero Plan (rendimiento
+  // real contra el estándar planificado, no HA total / ha_j).
   const coyoleoPlanGlobal = useMemo(() => {
-    let coyolerosPlan = 0, sacosPlanPonderado = 0;
-    form.grupos_coyoleo.forEach(g => {
-      const totHA = g.lotes.reduce((a, l) => a + n(l.ha), 0);
-      if (totHA <= 0) return;
-      const tdc = interpolarTDC(tabla, g.anio_siembra, n(form.densidad_siembra));
-      if (tdc) {
-        const cp = totHA / tdc.ha_j;
-        coyolerosPlan += cp;
-        sacosPlanPonderado += tdc.sacos_p * cp;
-      }
-    });
+    const densidadFsEquivalente = densidadFs / 0.085;
+    const fila = interpolarPorSector(tabla, n(form.sector), densidadFsEquivalente);
+    const tmFsTotal = form.grupos_coyoleo.flatMap(g => g.lotes).reduce((a, l) => a + n(l.tm_fs), 0);
+    const sacosRealesTotales = (tmFsTotal * 1000) / 33;
+    const sacosCyPlan = fila?.sacos_p ?? null;
     return {
-      haCyPlan:    coyolerosPlan > 0 ? totCoyoleo.ha / coyolerosPlan : 0,
-      sacosCyPlan: coyolerosPlan > 0 ? sacosPlanPonderado / coyolerosPlan : 0,
+      haCyPlan: fila?.ha_j ?? null,
+      sacosCyPlan,
+      coyolerosPlan: fila && sacosCyPlan ? Math.round(sacosRealesTotales / sacosCyPlan) : null,
     };
-  }, [form.grupos_coyoleo, form.densidad_siembra, tabla, totCoyoleo.ha]);
+  }, [tabla, form.sector, densidadFs, form.grupos_coyoleo]);
 
   async function handleGuardar() {
     if (!usuario) return;
@@ -456,7 +445,7 @@ export default function NuevaPlanificacion() {
           </button>
           <h1 className="text-white text-xl font-black">Resumen planificación</h1>
           <p className="text-emerald-400 text-[12px]">
-            Sector {form.sector} · {new Date(form.fecha + "T12:00:00").toLocaleDateString("es-NI", { day: "2-digit", month: "short", year: "numeric" })}
+            Sector {form.sector} · {new Date(form.fecha_ejecucion + "T12:00:00").toLocaleDateString("es-NI", { day: "2-digit", month: "short", year: "numeric" })}
           </p>
         </div>
 
@@ -514,6 +503,7 @@ export default function NuevaPlanificacion() {
             ]} />
             <div className="border-t-4 border-double border-t-stone-400" />
             <ComparativoTDC titulo="Coyoleo" filas={[
+              { label: "Coyoleros", real: totCoyoleo.coyoleros, plan: coyoleoPlanGlobal.coyolerosPlan, decimales: 0 },
               { label: "HA/CY",    real: totCoyoleo.coyoleros > 0 ? totCoyoleo.ha / totCoyoleo.coyoleros : 0, plan: coyoleoPlanGlobal.haCyPlan },
               { label: "Sacos/Cy", real: sacosCyReal, plan: coyoleoPlanGlobal.sacosCyPlan },
             ]} />
@@ -595,9 +585,9 @@ export default function NuevaPlanificacion() {
             onChange={v => setForm(f => ({ ...f, sector: v }))}
             options={SECTORES} placeholder="Sector" />
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Fecha</span>
-            <input type="date" value={form.fecha}
-              onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))}
+            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Fecha de ejecución</span>
+            <input type="date" value={form.fecha_ejecucion}
+              onChange={e => setForm(f => ({ ...f, fecha_ejecucion: e.target.value }))}
               className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-[14px] font-bold text-stone-900 outline-none focus:border-[#1A4D2E]" />
           </label>
         </div>
@@ -654,8 +644,13 @@ export default function NuevaPlanificacion() {
           </button>
         </div>
 
-        <button onClick={() => setPaso("resumen")}
-          className="w-full rounded-2xl bg-[#1A4D2E] py-4 text-white font-black text-[15px] shadow-lg shadow-[#1A4D2E]/20 active:scale-[0.98] transition">
+        {!form.fecha_ejecucion && (
+          <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+            Falta indicar la Fecha de ejecución para poder continuar.
+          </p>
+        )}
+        <button onClick={() => setPaso("resumen")} disabled={!form.fecha_ejecucion}
+          className="w-full rounded-2xl bg-[#1A4D2E] py-4 text-white font-black text-[15px] shadow-lg shadow-[#1A4D2E]/20 active:scale-[0.98] transition disabled:opacity-40 disabled:active:scale-100">
           Revisar y enviar
         </button>
       </div>

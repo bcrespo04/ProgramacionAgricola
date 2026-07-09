@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { Sprout, Tractor, Table2 } from "lucide-react";
+import { useAuth } from "../../lib/auth";
 
 const TABS = [
   { to: "/",               label: "Planificación", icon: Sprout,  end: true },
@@ -8,9 +9,12 @@ const TABS = [
 ];
 
 export function TabBar() {
+  const { usuario } = useAuth();
+  const tabs = usuario?.rol === "monitor" ? TABS.filter(t => t.to !== "/ejecucion") : TABS;
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-stone-200 flex">
-      {TABS.map(({ to, label, icon: Icon, end }) => (
+      {tabs.map(({ to, label, icon: Icon, end }) => (
         <NavLink key={to} to={to} end={end}
           className={({ isActive }) =>
             `flex-1 flex flex-col items-center gap-1 py-2.5 transition ${

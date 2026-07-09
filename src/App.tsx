@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import NuevaPlanificacion from "./pages/NuevaPlanificacion";
 import DetallePlanificacion from "./pages/DetallePlanificacion";
 import Ejecucion from "./pages/Ejecucion";
+import EjecucionForm from "./pages/EjecucionForm";
 import TablaDensidadView from "./pages/TablaDensidadView";
 
 export default function App() {
@@ -29,7 +30,16 @@ export default function App() {
             <DetallePlanificacion />
           </ProtectedRoute>
         } />
-        <Route path="/ejecucion" element={<ProtectedRoute><Ejecucion /></ProtectedRoute>} />
+        <Route path="/ejecucion" element={
+          <ProtectedRoute roles={["coordinador","zona_sur","zona_norte","admin"]}>
+            <Ejecucion />
+          </ProtectedRoute>
+        } />
+        <Route path="/ejecucion/nuevo" element={
+          <ProtectedRoute roles={["coordinador"]}>
+            <EjecucionForm />
+          </ProtectedRoute>
+        } />
         <Route path="/tabla-densidad" element={<ProtectedRoute><TablaDensidadView /></ProtectedRoute>} />
       </Routes>
     </AuthProvider>

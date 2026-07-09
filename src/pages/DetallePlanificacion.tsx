@@ -13,7 +13,7 @@ import {
   TablaCosechaConsolidada, TablaCoyoleoConsolidada,
   type FilaLoteCosechaConsolidada, type FilaLoteCoyoleoConsolidada
 } from "../components/TablasConsolidadas";
-import { interpolarTDC, calcDensidadFs, calcSacosCyReal } from "../lib/calculations";
+import { buscarFilaCercana, interpolarPorSector, calcDensidadFs, calcSacosCyReal } from "../lib/calculations";
 import { SECTORES_ZONA_SUR, SECTORES_ZONA_NORTE, type RegistroPlanificacion } from "../types";
 
 export default function DetallePlanificacion() {
@@ -59,47 +59,37 @@ export default function DetallePlanificacion() {
   const puedeEditar  = esCoord && registro.coordinador_id === usuario?.id && (registro.estado === "rechazado" || registro.estado === "borrador");
 
   // Comparativo TDC global del registro: suma real de todos los grupos vs plan
-  // de cada grupo (todos con la misma Densidad Siembra del registro).
-  const densidadGlobal = registro.densidad_siembra ?? 0;
+  // por sector (una sola búsqueda, ya no varía por grupo/año).
+  const densidadRac = registro.densidad_calculada ?? 0;
   const gruposSiembra = registro.grupos_siembra ?? [];
   const totCorteroGlobal = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.cort_emp + l.cort_cont, 0), 0);
   const totHAGlobal      = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.ha, 0), 0);
   const totTMGlobal      = gruposSiembra.reduce((a, g) => a + (g.lotes_cosecha ?? []).reduce((x, l) => x + l.tm, 0), 0);
 
-  let corterosPlanGlobal = 0, tmPlanPonderadoGlobal = 0;
-  gruposSiembra.forEach(g => {
-    const lotes = g.lotes_cosecha ?? [];
-    const ha = lotes.reduce((a, l) => a + l.ha, 0);
-    const tdcG = interpolarTDC(tabla, g.anio_siembra, densidadGlobal);
-    if (tdcG && ha > 0) {
-      const cp = ha / tdcG.ha_j;
-      corterosPlanGlobal += cp;
-      tmPlanPonderadoGlobal += tdcG.tm_c * cp;
-    }
-  });
-  const haCPlanGlobal = corterosPlanGlobal > 0 ? totHAGlobal / corterosPlanGlobal : 0;
-  const tmCPlanGlobal = corterosPlanGlobal > 0 ? tmPlanPonderadoGlobal / corterosPlanGlobal : 0;
+  const filaCosecha = buscarFilaCercana(tabla, registro.sector, densidadRac);
+  const corterosPlanGlobal = filaCosecha ? Math.round(totHAGlobal / filaCosecha.ha_j) : null;
+  const haCPlanGlobal = filaCosecha?.ha_j ?? null;
+  const tmCPlanGlobal = filaCosecha?.tm_c ?? null;
 
   const gruposCoyoleo = registro.grupos_coyoleo ?? [];
   const totHACoyGlobal = gruposCoyoleo.reduce((a, g) => a + (g.lotes_coyoleo ?? []).reduce((x, l) => x + l.ha, 0), 0);
   const totCoyolerosGlobal = gruposCoyoleo.reduce((a, g) => a + (g.lotes_coyoleo ?? []).reduce((x, l) => x + l.coy_emp + l.coy_cont, 0), 0);
 
-  let coyolerosPlanGlobal = 0, sacosPlanPonderadoGlobal = 0;
-  gruposCoyoleo.forEach(g => {
-    const ha = (g.lotes_coyoleo ?? []).reduce((a, l) => a + l.ha, 0);
-    if (ha <= 0) return;
-    const tdcG = interpolarTDC(tabla, g.anio_siembra, densidadGlobal);
-    if (tdcG) {
-      const cp = ha / tdcG.ha_j;
-      coyolerosPlanGlobal += cp;
-      sacosPlanPonderadoGlobal += tdcG.sacos_p * cp;
-    }
-  });
-  const haCyPlanGlobal    = coyolerosPlanGlobal > 0 ? totHACoyGlobal / coyolerosPlanGlobal : 0;
-  const sacosCyPlanGlobal = coyolerosPlanGlobal > 0 ? sacosPlanPonderadoGlobal / coyolerosPlanGlobal : 0;
-
   const densidadFs = calcDensidadFs(gruposCoyoleo.flatMap(g => g.lotes_coyoleo ?? []));
   const sacosCyReal = calcSacosCyReal(gruposCoyoleo.flatMap(g => g.lotes_coyoleo ?? []));
+  const tmFsTotalGlobal = gruposCoyoleo.flatMap(g => g.lotes_coyoleo ?? []).reduce((a, l) => a + l.tm_fs, 0);
+
+  // Densidad Fs ÷ 8.5% = densidad equivalente para buscar el plan de Coyoleo.
+  // Coyoleros Plan = sacos reales totales / Sacos-por-Coyolero Plan (rendimiento
+  // real contra el estándar planificado, no HA total / ha_j).
+  const densidadFsEquivalenteGlobal = densidadFs / 0.085;
+  const filaCoyoleo = interpolarPorSector(tabla, registro.sector, densidadFsEquivalenteGlobal);
+  const haCyPlanGlobal    = filaCoyoleo?.ha_j ?? null;
+  const sacosCyPlanGlobal = filaCoyoleo?.sacos_p ?? null;
+  const sacosRealesTotalesGlobal = (tmFsTotalGlobal * 1000) / 33;
+  const coyolerosPlanGlobal = filaCoyoleo && sacosCyPlanGlobal
+    ? Math.round(sacosRealesTotalesGlobal / sacosCyPlanGlobal)
+    : null;
 
   // Tabla consolidada de Cosecha: todos los lotes de todos los grupos, ordenados de mayor a menor año
   const gruposSiembraOrdenados = [...gruposSiembra].sort((a, b) => b.anio_siembra - a.anio_siembra);
@@ -193,9 +183,11 @@ export default function DetallePlanificacion() {
     }
   }
 
-  const fechaFmt = new Date(registro.fecha + "T12:00:00").toLocaleDateString("es-NI", {
-    weekday: "long", day: "2-digit", month: "long", year: "numeric"
-  });
+  const fechaFmt = registro.fecha_ejecucion
+    ? new Date(registro.fecha_ejecucion + "T12:00:00").toLocaleDateString("es-NI", {
+        weekday: "long", day: "2-digit", month: "long", year: "numeric"
+      })
+    : "—";
 
   return (
     <div className="min-h-screen bg-[#F7F5F0]">
@@ -306,6 +298,7 @@ export default function DetallePlanificacion() {
           ]} />
           <div className="border-t-4 border-double border-t-stone-400" />
           <ComparativoTDC titulo="Coyoleo" filas={[
+            { label: "Coyoleros", real: totCoyolerosGlobal, plan: coyolerosPlanGlobal, decimales: 0 },
             { label: "HA/CY",    real: totCoyolerosGlobal > 0 ? totHACoyGlobal / totCoyolerosGlobal : 0, plan: haCyPlanGlobal },
             { label: "Sacos/Cy", real: sacosCyReal, plan: sacosCyPlanGlobal },
           ]} />

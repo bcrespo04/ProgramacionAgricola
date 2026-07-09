@@ -30,7 +30,9 @@ function TarjetaRegistro({ r, onClick }: { r: RegistroPlanificacion; onClick: ()
             </span>
             <span className="text-[15px] font-black text-stone-900">Sector {r.sector}</span>
             <span className="text-[12px] text-stone-400">
-              {new Date(r.fecha + "T12:00:00").toLocaleDateString("es-NI", { day: "2-digit", month: "short" })}
+              {r.fecha_ejecucion
+                ? new Date(r.fecha_ejecucion + "T12:00:00").toLocaleDateString("es-NI", { day: "2-digit", month: "short" })
+                : "—"}
             </span>
           </div>
           <div className="flex items-center gap-2 mb-2">

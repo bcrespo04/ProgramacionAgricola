@@ -17,7 +17,7 @@ export interface Usuario {
 
 export interface TablaDensidad {
   id: number;
-  anio_siembra: number;
+  sector: number;
   densidad_plan: number;
   densidad_fs: number;
   ha_j: number;
@@ -62,7 +62,7 @@ export interface GrupoCoyoleoForm {
 }
 
 export interface RegistroPlanificacionForm {
-  fecha: string;
+  fecha_ejecucion: string;
   sector: string;
   fiscal_cosecha: string;
   fiscal_coyoleo: string;
@@ -76,6 +76,7 @@ export interface RegistroPlanificacionForm {
 export interface RegistroPlanificacion {
   id: string;
   fecha: string;
+  fecha_ejecucion: string | null;
   sector: number;
   coordinador_id: string;
   estado: EstadoRegistro;
@@ -137,4 +138,68 @@ export interface LoteCoyoleo {
   coy_emp: number;
   coy_cont: number;
   tm_fs: number;
+}
+
+// ── Ejecución diaria ────────────────────────────────────────────
+export interface EjecucionLote {
+  id: string;
+  lote_cosecha_id: string;
+  lotes_cosecha?: { lote: string };
+}
+
+export interface EjecucionDiaria {
+  id: string;
+  coordinador_id: string;
+  sector: number;
+  fecha: string;
+  corteros: number | null;
+  evacuadores: number | null;
+  coyoleros: number | null;
+  cargadores: number | null;
+  fruta_dia_anterior: number | null;
+  tm_enviadas: number | null;
+  bacadillas: number | null;
+  sacos_dia: number | null;
+  sacos_enviados: number | null;
+  ha_coyol: number | null;
+  ha_cosechadas: number | null;
+  lotes_extra: string | null;
+  created_at: string;
+  coordinador?: { nombre: string };
+  ejecucion_lotes?: EjecucionLote[];
+}
+
+export interface EjecucionDiariaForm {
+  fecha: string;
+  corteros: string;
+  evacuadores: string;
+  coyoleros: string;
+  cargadores: string;
+  fruta_dia_anterior: string;
+  tm_enviadas: string;
+  bacadillas: string;
+  sacos_dia: string;
+  sacos_enviados: string;
+  ha_coyol: string;
+  ha_cosechadas: string;
+  lotes_extra: string;
+  lotes_seleccionados: string[];
+}
+
+// ── Plan aprobado para una fecha de ejecución (buscarPlanParaFecha) ────
+export interface PlanLoteCosecha {
+  id: string;
+  lote: string;
+  ha: number;
+}
+
+export interface PlanGrupoSiembra {
+  id: string;
+  anio_siembra: number;
+  lotes_cosecha: PlanLoteCosecha[];
+}
+
+export interface PlanAprobado {
+  id: string;
+  grupos_siembra: PlanGrupoSiembra[];
 }

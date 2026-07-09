@@ -13,43 +13,40 @@ export function calcTM(ha: string, densidad: string, peso: string, rp: string): 
   return n(ha) * n(densidad) * n(peso) / 1000 * n(rp);
 }
 
-/** Busca la fila TDC para un año y densidad dados (redondeo al múltiplo de 100 más cercano) */
-export function buscarTDC(tabla: TablaDensidad[], anio: string | number, densidad: number): TablaDensidad | null {
-  const centena = Math.round(densidad / 100) * 100;
-  const matchKey = n(anio) * 1000 + centena;
-  return tabla.find(f => f.match_key === matchKey) ?? null;
+/** Busca, dentro de un sector, la fila de tabla_densidad con densidad_plan
+ * más cercana a la densidad real (no asume que existan todos los múltiplos
+ * de 100 — hay huecos conocidos). Sin interpolación, una sola fila. */
+export function buscarFilaCercana(tabla: TablaDensidad[], sector: number, densidad: number): TablaDensidad | null {
+  const filas = tabla.filter(f => f.sector === sector);
+  if (!filas.length || !densidad) return null;
+  return filas.reduce((mejor, f) =>
+    Math.abs(f.densidad_plan - densidad) < Math.abs(mejor.densidad_plan - densidad) ? f : mejor
+  );
 }
 
-/**
- * Interpola entre las dos filas de tabla_densidad que acotan la densidad real
- * (tabla_densidad va de 100 en 100). Si la densidad cae exacto en un múltiplo
- * de 100, usa esa fila directamente sin promediar.
- */
-export function interpolarTDC(
-  tabla: TablaDensidad[],
-  anio: string | number,
-  densidad: number
-): TablaDensidad | null {
-  if (!densidad) return null;
-  const piso  = Math.floor(densidad / 100) * 100;
-  const techo = Math.ceil(densidad / 100) * 100;
-  const anioNum = n(anio);
+/** Interpola entre las dos filas de un sector que acotan la densidad
+ * equivalente (promedia ha_j, tm_c, sacos_ha, sacos_p si cae entre dos). */
+export function interpolarPorSector(tabla: TablaDensidad[], sector: number, densidad: number): TablaDensidad | null {
+  const filas = tabla.filter(f => f.sector === sector).sort((a, b) => a.densidad_plan - b.densidad_plan);
+  if (!filas.length || !densidad) return null;
 
-  const filaPiso  = tabla.find(f => f.anio_siembra === anioNum && f.densidad_plan === piso);
-  const filaTecho = tabla.find(f => f.anio_siembra === anioNum && f.densidad_plan === techo);
-
-  if (!filaPiso && !filaTecho) return null;
-  if (!filaPiso) return filaTecho!;
-  if (!filaTecho || piso === techo) return filaPiso;
+  let piso: TablaDensidad | undefined;
+  let techo: TablaDensidad | undefined;
+  for (const f of filas) {
+    if (f.densidad_plan <= densidad) piso = f;
+    if (f.densidad_plan >= densidad && !techo) techo = f;
+  }
+  if (!piso) return techo!;
+  if (!techo || piso.densidad_plan === techo.densidad_plan) return piso;
 
   const prom = (a: number, b: number) => (a + b) / 2;
   return {
-    ...filaPiso,
+    ...piso,
     densidad_plan: densidad,
-    ha_j:     prom(filaPiso.ha_j, filaTecho.ha_j),
-    tm_c:     prom(filaPiso.tm_c, filaTecho.tm_c),
-    sacos_ha: prom(filaPiso.sacos_ha, filaTecho.sacos_ha),
-    sacos_p:  prom(filaPiso.sacos_p, filaTecho.sacos_p),
+    ha_j: prom(piso.ha_j, techo.ha_j),
+    tm_c: prom(piso.tm_c, techo.tm_c),
+    sacos_ha: prom(piso.sacos_ha, techo.sacos_ha),
+    sacos_p: prom(piso.sacos_p, techo.sacos_p),
   };
 }
 

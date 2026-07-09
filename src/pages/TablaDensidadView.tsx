@@ -41,7 +41,7 @@ export default function TablaDensidadView() {
               <table className="w-full min-w-[560px] text-[11px] tabular-nums border-collapse">
                 <thead className="sticky top-0 z-10 bg-stone-100">
                   <tr className="text-[9px] font-bold uppercase tracking-wider text-stone-500">
-                    <th className="px-3 py-2 text-left">Año</th>
+                    <th className="px-3 py-2 text-left">Sector</th>
                     <th className="px-3 py-2 text-right">Dens. plan</th>
                     <th className="px-3 py-2 text-right">Dens. FS</th>
                     <th className="px-3 py-2 text-right">HA/J</th>
@@ -53,7 +53,7 @@ export default function TablaDensidadView() {
                 <tbody className="divide-y divide-stone-100">
                   {tabla.map((f, i) => (
                     <tr key={f.id} className={i % 2 ? "bg-stone-50/50" : ""}>
-                      <td className="px-3 py-2 font-bold text-stone-800">{f.anio_siembra}</td>
+                      <td className="px-3 py-2 font-bold text-stone-800">{f.sector}</td>
                       <td className="px-3 py-2 text-right text-stone-700">{f.densidad_plan}</td>
                       <td className="px-3 py-2 text-right text-stone-500">{fmt(f.densidad_fs)}</td>
                       <td className="px-3 py-2 text-right text-stone-700">{fmt(f.ha_j)}</td>
