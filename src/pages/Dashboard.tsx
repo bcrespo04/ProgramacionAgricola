@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Sprout, Plus, ChevronRight, Clock, AlertCircle,
-  LogOut, Users, Eye
+  LogOut, Users, Eye, RefreshCw
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { getRegistros } from "../lib/api";
+import { forzarActualizacion } from "../lib/forzarActualizacion";
 import { EstadoBadge, Spinner } from "../components/ui";
 import { TabBar } from "../components/layout/TabBar";
 import type { RegistroPlanificacion, EstadoRegistro } from "../types";
@@ -59,6 +60,18 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [registros, setRegistros] = useState<RegistroPlanificacion[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [modalActualizar, setModalActualizar] = useState(false);
+  const [actualizando, setActualizando] = useState(false);
+
+  async function handleActualizar() {
+    setActualizando(true);
+    try {
+      await forzarActualizacion();
+    } catch (e) {
+      console.error(e);
+      setActualizando(false);
+    }
+  }
 
   useEffect(() => {
     if (!usuario) return;
@@ -96,9 +109,14 @@ export default function Dashboard() {
               Programación Agrícola
             </span>
           </div>
-          <button onClick={logout} className="text-emerald-300 p-1">
-            <LogOut className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setModalActualizar(true)} className="text-emerald-300 p-1" title="Actualizar aplicación">
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button onClick={logout} className="text-emerald-300 p-1">
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <h1 className="text-white text-2xl font-black">Hola, {usuario.nombre.split(" ")[0]}</h1>
         <p className="text-emerald-400 text-[12px]">{etiquetaRol[usuario.rol]}</p>
@@ -181,6 +199,31 @@ export default function Dashboard() {
       )}
 
       <TabBar />
+
+      {/* Modal confirmación actualizar aplicación */}
+      {modalActualizar && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 space-y-4">
+            <div>
+              <h2 className="text-[15px] font-black text-stone-900">¿Actualizar la aplicación?</h2>
+            </div>
+            <p className="text-[13px] text-stone-600 bg-stone-50 border border-stone-200 rounded-xl px-3.5 py-3 leading-relaxed">
+              Esto va a recargar la página y limpiar los datos guardados localmente (como el caché de Tabla Densidad).
+              No perderás nada de lo que ya está guardado en el servidor, pero si tienes un formulario sin enviar, se va a perder.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setModalActualizar(false)} disabled={actualizando}
+                className="flex-1 rounded-2xl border-2 border-stone-300 py-3 text-stone-600 font-bold text-[13px]">
+                Cancelar
+              </button>
+              <button onClick={handleActualizar} disabled={actualizando}
+                className="flex-1 rounded-2xl bg-[#1A4D2E] py-3 text-white font-bold text-[13px] flex items-center justify-center gap-1.5 disabled:opacity-60">
+                <RefreshCw className={`h-3.5 w-3.5 ${actualizando ? "animate-spin" : ""}`} /> {actualizando ? "Actualizando..." : "Sí, actualizar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

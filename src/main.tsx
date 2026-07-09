@@ -11,3 +11,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </BrowserRouter>
   </React.StrictMode>
 );
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistration().then(reg => {
+    if (!reg) return;
+    setInterval(() => reg.update(), 5 * 60 * 1000);
+  });
+}
