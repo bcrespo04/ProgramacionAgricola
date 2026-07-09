@@ -1,31 +1,84 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Plus, Trash2, Send, Edit3 } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ChevronLeft, Plus, Trash2, Send, Edit3, AlertCircle } from "lucide-react";
 import { useAuth } from "../lib/auth";
-import { crearRegistro } from "../lib/api";
+import { crearRegistro, actualizarRegistro, getRegistroCompleto } from "../lib/api";
 import { useTablaDensidad } from "../lib/useTablaDensidad";
 import {
-  NumInput, TextInput, SelectInput, ReadBox
+  NumInput, TextInput, SelectInput, ReadBox, Spinner
 } from "../components/ui";
 import { ComparativoTDC } from "../components/ComparativoTDC";
 import {
-  n, fmt, calcTM, calcDensidadIndependiente, totalesGrupo,
+  TablaCosechaConsolidada, TablaCoyoleoConsolidada,
+  type FilaLoteCosechaConsolidada, type FilaLoteCoyoleoConsolidada
+} from "../components/TablasConsolidadas";
+import {
+  n, fmt, calcTM, calcDensidadIndependiente, calcDensidadFs, calcSacosCyReal, totalesGrupo,
   totalesGlobales, interpolarTDC
 } from "../lib/calculations";
 import {
   EDADES_SIEMBRA,
   type GrupoSiembraForm, type LoteCosechaForm,
-  type GrupoCoyoleoForm, type LoteCoyoleoForm, type RegistroPlanificacionForm
+  type GrupoCoyoleoForm, type LoteCoyoleoForm, type RegistroPlanificacionForm,
+  type RegistroPlanificacion, type GrupoSiembra, type GrupoCoyoleo
 } from "../types";
 
 // ── ID helpers ────────────────────────────────────────────────
 const uid = () => Math.random().toString(36).slice(2);
 const loteInit     = (): LoteCosechaForm  => ({ id: uid(), lote: "", ha: "", rp: "", densidad_palma: "", peso_fruta: "", cort_emp: "", cort_cont: "", evac_emp: "", evac_cont: "" });
 const grupoInit    = (): GrupoSiembraForm => ({ id: uid(), anio_siembra: "", lotes: [loteInit()] });
-const coyInit      = (): LoteCoyoleoForm  => ({ id: uid(), lote: "", ha: "", coy_emp: "", coy_cont: "" });
+const coyInit      = (): LoteCoyoleoForm  => ({ id: uid(), lote: "", ha: "", coy_emp: "", coy_cont: "", tm_fs: "" });
 const grupoCoyInit = (): GrupoCoyoleoForm => ({ id: uid(), anio_siembra: "", lotes: [coyInit()] });
 
 const SECTORES = Array.from({ length: 12 }, (_, i) => String(i + 1));
+
+// ── Conversión registro (DB) → form (edición) ──────────────────
+function grupoSiembraAForm(g: GrupoSiembra): GrupoSiembraForm {
+  return {
+    id: g.id,
+    anio_siembra: String(g.anio_siembra),
+    lotes: (g.lotes_cosecha ?? []).map(l => ({
+      id: l.id,
+      lote: l.lote,
+      ha: String(l.ha),
+      rp: String(l.rp),
+      densidad_palma: String(l.densidad_palma),
+      peso_fruta: String(l.peso_fruta),
+      cort_emp: String(l.cort_emp),
+      cort_cont: String(l.cort_cont),
+      evac_emp: String(l.evac_emp),
+      evac_cont: String(l.evac_cont),
+    })),
+  };
+}
+
+function grupoCoyoleoAForm(g: GrupoCoyoleo): GrupoCoyoleoForm {
+  return {
+    id: g.id,
+    anio_siembra: String(g.anio_siembra),
+    lotes: (g.lotes_coyoleo ?? []).map(l => ({
+      id: l.id,
+      lote: l.lote,
+      ha: String(l.ha),
+      coy_emp: String(l.coy_emp),
+      coy_cont: String(l.coy_cont),
+      tm_fs: String(l.tm_fs),
+    })),
+  };
+}
+
+function registroAForm(r: RegistroPlanificacion): RegistroPlanificacionForm {
+  return {
+    fecha: r.fecha,
+    sector: String(r.sector),
+    fiscal_cosecha: r.fiscal_cosecha ?? "",
+    fiscal_coyoleo: r.fiscal_coyoleo ?? "",
+    densidad_siembra: r.densidad_siembra != null ? String(r.densidad_siembra) : "",
+    peso_fruta: r.peso_fruta != null ? String(r.peso_fruta) : "",
+    grupos: (r.grupos_siembra ?? []).map(grupoSiembraAForm),
+    grupos_coyoleo: (r.grupos_coyoleo ?? []).map(grupoCoyoleoAForm),
+  };
+}
 
 // ── Fila de lote cosecha ──────────────────────────────────────
 function FilaLote({ lote, onChange, onDelete, canDelete }: {
@@ -139,6 +192,7 @@ function FilaCoyoleo({ lote, onChange, onDelete, canDelete }: {
         <NumInput label="Coy. emp"  value={lote.coy_emp}  onChange={set("coy_emp")} />
         <NumInput label="Coy. cont" value={lote.coy_cont} onChange={set("coy_cont")} />
       </div>
+      <NumInput label="TM/Fs" value={lote.tm_fs} onChange={set("tm_fs")} />
     </div>
   );
 }
@@ -187,138 +241,6 @@ function GrupoCoyoleo({ grupo, onChange, onDelete, canDelete }: {
   );
 }
 
-// ── Resumen por siembra con TDC ───────────────────────────────
-function ResumenSiembra({ grupo, tabla, densidadGlobal }: {
-  grupo: GrupoSiembraForm;
-  tabla: ReturnType<typeof useTablaDensidad>["tabla"];
-  densidadGlobal: number;
-}) {
-  const tot = totalesGrupo(grupo.lotes);
-  const densProm = grupo.lotes.reduce((a, l) => a + n(l.densidad_palma), 0) / (grupo.lotes.length || 1);
-  const pesoProm = grupo.lotes.reduce((a, l) => a + n(l.peso_fruta), 0) / (grupo.lotes.length || 1);
-  const tdc = interpolarTDC(tabla, grupo.anio_siembra, densidadGlobal);
-
-  const tmC     = tot.corteros > 0 ? tot.tm / tot.corteros : 0;
-  const haC     = tot.corteros > 0 ? tot.ha / tot.corteros : 0;
-  const cortPlan = tdc && tot.ha > 0 ? tot.ha / tdc.ha_j : 0;
-
-  return (
-    <div className="rounded-2xl border border-orange-200 bg-white overflow-hidden">
-      <div className="px-4 py-2.5 bg-orange-50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-[#E07B39]" />
-          <span className="text-[12px] font-black text-[#E07B39] uppercase tracking-wide">
-            Siembra {grupo.anio_siembra || "—"}
-          </span>
-          <span className="text-[10px] text-stone-400">{grupo.lotes.length} lotes</span>
-        </div>
-      </div>
-
-      <div className="px-4 py-3 space-y-3">
-        {/* Tabla lotes */}
-        <div className="rounded-xl border border-stone-100 overflow-x-auto text-[11px]">
-          <div className="grid grid-cols-7 min-w-[440px] bg-stone-50 px-3 py-1.5 font-bold uppercase tracking-wider text-[9px] text-stone-400">
-            <span>Lote</span><span className="text-right">HA</span><span className="text-right">Dens</span>
-            <span className="text-right">Peso</span><span className="text-right">RP</span>
-            <span className="text-right">TM</span><span className="text-right">Cort</span>
-          </div>
-          {grupo.lotes.map((l, i) => (
-            <div key={l.id} className={`grid grid-cols-7 min-w-[440px] px-3 py-2 font-medium text-stone-800 tabular-nums ${i % 2 ? "bg-stone-50/50" : ""}`}>
-              <span className="font-bold">{l.lote || "—"}</span>
-              <span className="text-right">{fmt(n(l.ha))}</span>
-              <span className="text-right">{fmt(n(l.densidad_palma), 0)}</span>
-              <span className="text-right">{fmt(n(l.peso_fruta))}</span>
-              <span className="text-right">{fmt(n(l.rp), 2)}</span>
-              <span className="text-right">{fmt(calcTM(l.ha, l.densidad_palma, l.peso_fruta, l.rp))}</span>
-              <span className="text-right">{n(l.cort_emp) + n(l.cort_cont)}</span>
-            </div>
-          ))}
-          <div className="grid grid-cols-7 min-w-[440px] px-3 py-2 bg-orange-50 font-black text-[#E07B39] tabular-nums border-t border-orange-100 text-[11px]">
-            <span>SUB</span>
-            <span className="text-right">{fmt(tot.ha)}</span>
-            <span className="text-right">{fmt(densProm, 0)}</span>
-            <span className="text-right">{fmt(pesoProm)}</span>
-            <span className="text-right">{fmt(tot.rp, 2)}</span>
-            <span className="text-right">{fmt(tot.tm)}</span>
-            <span className="text-right">{tot.corteros}</span>
-          </div>
-        </div>
-
-        {/* Comparativo TDC */}
-        {tdc ? (
-          <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densidadGlobal, 0)}`} filas={[
-            { label: "Total corteros", real: tot.corteros, plan: cortPlan, decimales: 0 },
-            { label: "TM/C",           real: tmC,          plan: tdc.tm_c },
-            { label: "HA/C",           real: haC,          plan: tdc.ha_j },
-          ]} />
-        ) : (
-          <p className="text-[11px] text-stone-400 text-center py-1">
-            Ingresa la Densidad Siembra en Datos generales para ver el plan TDC
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Resumen por siembra de coyoleo con TDC ─────────────────────
-// La densidad usada para el plan TDC es la Densidad Siembra global del registro.
-function ResumenCoyoleo({ grupo, tabla, densidadGlobal }: {
-  grupo: GrupoCoyoleoForm;
-  tabla: ReturnType<typeof useTablaDensidad>["tabla"];
-  densidadGlobal: number;
-}) {
-  const totHA = grupo.lotes.reduce((a, l) => a + n(l.ha), 0);
-  const totCoyoleros = grupo.lotes.reduce((a, l) => a + n(l.coy_emp) + n(l.coy_cont), 0);
-  const haCoyReal = totCoyoleros > 0 ? totHA / totCoyoleros : 0;
-
-  const tdc = interpolarTDC(tabla, grupo.anio_siembra, densidadGlobal);
-
-  return (
-    <div className="rounded-2xl border border-blue-100 bg-white overflow-hidden">
-      <div className="px-4 py-2.5 bg-blue-50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-[#2563A8]" />
-          <span className="text-[12px] font-black text-[#2563A8] uppercase tracking-wide">
-            Siembra {grupo.anio_siembra || "—"}
-          </span>
-          <span className="text-[10px] text-stone-400">{grupo.lotes.length} lotes</span>
-        </div>
-      </div>
-
-      <div className="px-4 py-3 space-y-3">
-        <div className="rounded-xl border border-stone-100 overflow-hidden text-[11px]">
-          <div className="grid grid-cols-3 bg-stone-50 px-3 py-1.5 font-bold uppercase tracking-wider text-[9px] text-stone-400">
-            <span>Lote</span><span className="text-right">HA</span><span className="text-right">Coyoleros</span>
-          </div>
-          {grupo.lotes.map((l, i) => (
-            <div key={l.id} className={`grid grid-cols-3 px-3 py-2 font-medium text-stone-800 tabular-nums ${i % 2 ? "bg-stone-50/50" : ""}`}>
-              <span className="font-bold">{l.lote || "—"}</span>
-              <span className="text-right">{fmt(n(l.ha))}</span>
-              <span className="text-right">{n(l.coy_emp) + n(l.coy_cont)}</span>
-            </div>
-          ))}
-          <div className="grid grid-cols-3 px-3 py-2 bg-blue-50 font-black text-[#2563A8] tabular-nums border-t border-blue-100 text-[11px]">
-            <span>SUB</span>
-            <span className="text-right">{fmt(totHA)}</span>
-            <span className="text-right">{totCoyoleros}</span>
-          </div>
-        </div>
-
-        {tdc ? (
-          <ComparativoTDC titulo={`vs Plan TDC · Dens ${fmt(densidadGlobal, 0)}`} filas={[
-            { label: "HA/Coyolero", real: haCoyReal, plan: tdc.ha_j },
-            { label: "Sacos/Cy plan", real: null, plan: tdc.sacos_p },
-          ]} />
-        ) : (
-          <p className="text-[11px] text-stone-400 text-center py-1">
-            Ingresa la Densidad Siembra en Datos generales para ver el plan TDC
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Página principal ──────────────────────────────────────────
 type Paso = "form" | "resumen";
@@ -326,10 +248,16 @@ type Paso = "form" | "resumen";
 export default function NuevaPlanificacion() {
   const { usuario } = useAuth();
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const esEdicion = !!id;
   const { tabla } = useTablaDensidad();
   const [paso, setPaso] = useState<Paso>("form");
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
+
+  const [cargandoRegistro, setCargandoRegistro] = useState(esEdicion);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [registroOriginal, setRegistroOriginal] = useState<RegistroPlanificacion | null>(null);
 
   const [form, setForm] = useState<RegistroPlanificacionForm>({
     fecha:            new Date().toISOString().slice(0, 10),
@@ -341,6 +269,22 @@ export default function NuevaPlanificacion() {
     grupos:           [grupoInit()],
     grupos_coyoleo:   [grupoCoyInit()],
   });
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelado = false;
+    setCargandoRegistro(true);
+    getRegistroCompleto(id)
+      .then(data => {
+        if (cancelado) return;
+        if (!data) { setErrorCarga("Registro no encontrado"); return; }
+        setRegistroOriginal(data);
+        setForm(registroAForm(data));
+      })
+      .catch(e => setErrorCarga(e instanceof Error ? e.message : "Error al cargar el registro"))
+      .finally(() => { if (!cancelado) setCargandoRegistro(false); });
+    return () => { cancelado = true; };
+  }, [id]);
 
   const updGrupo = (id: string, g: GrupoSiembraForm) =>
     setForm(f => ({ ...f, grupos: f.grupos.map(x => x.id === id ? g : x) }));
@@ -364,6 +308,48 @@ export default function NuevaPlanificacion() {
   const totCoyoleo = useMemo(() => form.grupos_coyoleo.flatMap(g => g.lotes).reduce((acc, l) => ({
     ha: acc.ha + n(l.ha), coyoleros: acc.coyoleros + n(l.coy_emp) + n(l.coy_cont),
   }), { ha: 0, coyoleros: 0 }), [form.grupos_coyoleo]);
+
+  const densidadFs = useMemo(
+    () => calcDensidadFs(form.grupos_coyoleo.flatMap(g => g.lotes)),
+    [form.grupos_coyoleo]
+  );
+
+  const sacosCyReal = useMemo(
+    () => calcSacosCyReal(form.grupos_coyoleo.flatMap(g => g.lotes)),
+    [form.grupos_coyoleo]
+  );
+
+  // Tabla consolidada de Cosecha: todos los lotes de todos los grupos, ordenados de mayor a menor año
+  const filasCosecha = useMemo<FilaLoteCosechaConsolidada[]>(() => {
+    const gruposOrdenados = [...form.grupos].sort((a, b) => n(b.anio_siembra) - n(a.anio_siembra));
+    return gruposOrdenados.flatMap(g => g.lotes.map(l => ({
+      grupoId: g.id,
+      anioSiembra: g.anio_siembra,
+      loteId: l.id,
+      lote: l.lote,
+      ha: n(l.ha),
+      dens: n(l.densidad_palma),
+      peso: n(l.peso_fruta),
+      rp: n(l.rp),
+      tm: calcTM(l.ha, l.densidad_palma, l.peso_fruta, l.rp),
+      cort: n(l.cort_emp) + n(l.cort_cont),
+    })));
+  }, [form.grupos]);
+
+  // Tabla consolidada de Coyoleo: todos los lotes de todos los grupos, ordenados de mayor a menor año
+  const filasCoyoleo = useMemo<FilaLoteCoyoleoConsolidada[]>(() => {
+    const gruposOrdenados = [...form.grupos_coyoleo].sort((a, b) => n(b.anio_siembra) - n(a.anio_siembra));
+    return gruposOrdenados.flatMap(g => g.lotes.map(l => ({
+      grupoId: g.id,
+      anioSiembra: g.anio_siembra,
+      loteId: l.id,
+      lote: l.lote,
+      ha: n(l.ha),
+      coyEmp: n(l.coy_emp),
+      coyCont: n(l.coy_cont),
+      tmFs: n(l.tm_fs),
+    })));
+  }, [form.grupos_coyoleo]);
 
   // Plan TDC global de cosecha: suma del plan de cada grupo, todos con la misma Densidad Siembra global
   const cosechaPlanGlobal = useMemo(() => {
@@ -408,7 +394,11 @@ export default function NuevaPlanificacion() {
     setGuardando(true);
     setErrorGuardar(null);
     try {
-      await crearRegistro(form, usuario.id);
+      if (esEdicion && id) {
+        await actualizarRegistro(id, form);
+      } else {
+        await crearRegistro(form, usuario.id);
+      }
       navigate("/");
     } catch (e: any) {
       console.error(e);
@@ -416,6 +406,42 @@ export default function NuevaPlanificacion() {
       setErrorGuardar(msg || "No se pudo guardar el registro. Intenta de nuevo.");
     } finally {
       setGuardando(false);
+    }
+  }
+
+  // ── Carga en modo edición ──
+  if (esEdicion && cargandoRegistro) {
+    return <div className="min-h-screen flex items-center justify-center bg-[#F7F5F0]"><Spinner /></div>;
+  }
+
+  if (esEdicion && errorCarga) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-[#F7F5F0] px-6 text-center">
+        <AlertCircle className="h-8 w-8 text-stone-300" />
+        <p className="text-stone-500 text-[13px] font-bold">{errorCarga}</p>
+        <button onClick={() => navigate("/")}
+          className="rounded-2xl bg-[#1A4D2E] px-5 py-2.5 text-white font-bold text-[13px]">
+          Volver al inicio
+        </button>
+      </div>
+    );
+  }
+
+  // Guarda de seguridad: solo el coordinador dueño puede editar un registro rechazado/borrador
+  if (esEdicion && registroOriginal) {
+    const esDueno = usuario?.id === registroOriginal.coordinador_id;
+    const estadoEditable = registroOriginal.estado === "rechazado" || registroOriginal.estado === "borrador";
+    if (!esDueno || !estadoEditable) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-[#F7F5F0] px-6 text-center">
+          <AlertCircle className="h-8 w-8 text-stone-300" />
+          <p className="text-stone-500 text-[13px] font-bold">Este registro no se puede editar</p>
+          <button onClick={() => navigate("/")}
+            className="rounded-2xl bg-[#1A4D2E] px-5 py-2.5 text-white font-bold text-[13px]">
+            Volver al inicio
+          </button>
+        </div>
+      );
     }
   }
 
@@ -435,79 +461,62 @@ export default function NuevaPlanificacion() {
         </div>
 
         <div className="px-4 py-4 space-y-4 pb-32">
-          {/* Global */}
+          {/* Resumen */}
           <div className="rounded-2xl bg-white border border-stone-200 px-4 py-3.5">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400 block mb-3">Global</span>
-            <div className="grid grid-cols-4 gap-2 pb-3 border-b border-stone-100">
-              <div>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400 block">Densidad</span>
-                <span className="text-[20px] font-black text-[#1A4D2E] tabular-nums">{densCalc.toFixed(0)}</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400 block mb-3">Resumen</span>
+            <div className="grid grid-cols-2 divide-x divide-stone-100">
+              <div className="space-y-3 pr-3">
+                <div>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400 block">Densidad Rac</span>
+                  <span className="text-[20px] font-black text-[#1A4D2E] tabular-nums">{densCalc.toFixed(0)}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400 block">Densidad Fs</span>
+                  <span className="text-[20px] font-black text-[#1A4D2E] tabular-nums">
+                    {densidadFs > 0 ? densidadFs.toFixed(0) : "—"}
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400 block">HA</span>
-                <span className="text-[20px] font-black text-stone-800 tabular-nums">{fmt(totGlobal.ha)}</span>
-              </div>
-              <div>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400 block">TM</span>
-                <span className="text-[20px] font-black text-stone-800 tabular-nums">{fmt(totGlobal.tm)}</span>
-              </div>
-              <div>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-[#E07B39] block">Cort/HA</span>
-                <span className="text-[20px] font-black text-[#E07B39] tabular-nums">
-                  {totGlobal.ha > 0 ? fmt(totGlobal.corteros / totGlobal.ha) : "—"}
-                </span>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 pt-3">
-              <div>
-                <span className="text-[9px] text-stone-400 font-bold uppercase tracking-widest">Fiscal cosecha</span>
-                <p className="text-[13px] font-black text-stone-800">{form.fiscal_cosecha || "—"}</p>
-              </div>
-              <div>
-                <span className="text-[9px] text-stone-400 font-bold uppercase tracking-widest">Fiscal coyoleo</span>
-                <p className="text-[13px] font-black text-stone-800">{form.fiscal_coyoleo || "—"}</p>
+              <div className="space-y-3 pl-3">
+                <div>
+                  <span className="text-[9px] text-stone-400 font-bold uppercase tracking-widest block">Fiscal C.</span>
+                  <span className="text-[14px] font-black text-stone-800">{form.fiscal_cosecha || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] text-stone-400 font-bold uppercase tracking-widest block">Fiscal Coy.</span>
+                  <span className="text-[14px] font-black text-stone-800">{form.fiscal_coyoleo || "—"}</span>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Comparativo TDC global del registro */}
+          {/* Tabla consolidada de Cosecha */}
+          <div>
+            <span className="text-[11px] font-black uppercase tracking-wide text-[#E07B39] block mb-3">Cosecha</span>
+            <TablaCosechaConsolidada filas={filasCosecha} />
+          </div>
+
+          {/* Tabla consolidada de Coyoleo */}
+          <div>
+            <span className="text-[11px] font-black uppercase tracking-wide text-[#2563A8] block mb-3">Coyoleo</span>
+            <TablaCoyoleoConsolidada filas={filasCoyoleo} />
+          </div>
+
+          {/* Comparativo TDC global del registro — al final */}
           <div className="space-y-3">
             <span className="text-[11px] font-black uppercase tracking-wide text-stone-500 block">
               Comparativo TDC · todo el registro
             </span>
             <ComparativoTDC titulo="Cosecha" filas={[
-              { label: "Total corteros", real: totGlobal.corteros, plan: cosechaPlanGlobal.corterosPlan, decimales: 0 },
-              { label: "TM/C",           real: totGlobal.corteros > 0 ? totGlobal.tm / totGlobal.corteros : 0, plan: cosechaPlanGlobal.tmCPlan },
-              { label: "HA/C",           real: totGlobal.corteros > 0 ? totGlobal.ha / totGlobal.corteros : 0, plan: cosechaPlanGlobal.haCPlan },
+              { label: "Corteros", real: totGlobal.corteros, plan: cosechaPlanGlobal.corterosPlan, decimales: 0 },
+              { label: "TM/C",     real: totGlobal.corteros > 0 ? totGlobal.tm / totGlobal.corteros : 0, plan: cosechaPlanGlobal.tmCPlan },
+              { label: "HA/C",     real: totGlobal.corteros > 0 ? totGlobal.ha / totGlobal.corteros : 0, plan: cosechaPlanGlobal.haCPlan },
             ]} />
+            <div className="border-t-4 border-double border-t-stone-400" />
             <ComparativoTDC titulo="Coyoleo" filas={[
-              { label: "HA/Coyolero",    real: totCoyoleo.coyoleros > 0 ? totCoyoleo.ha / totCoyoleo.coyoleros : 0, plan: coyoleoPlanGlobal.haCyPlan },
-              { label: "Sacos/Cy plan",  real: null, plan: coyoleoPlanGlobal.sacosCyPlan },
+              { label: "HA/CY",    real: totCoyoleo.coyoleros > 0 ? totCoyoleo.ha / totCoyoleo.coyoleros : 0, plan: coyoleoPlanGlobal.haCyPlan },
+              { label: "Sacos/Cy", real: sacosCyReal, plan: coyoleoPlanGlobal.sacosCyPlan },
             ]} />
-          </div>
-
-          {/* Por siembra */}
-          <div>
-            <span className="text-[11px] font-black uppercase tracking-wide text-stone-500 block mb-3">
-              Detalle por siembra · comparativo TDC
-            </span>
-            <div className="space-y-3">
-              {form.grupos.map(g => (
-                <ResumenSiembra key={g.id} grupo={g} tabla={tabla} densidadGlobal={n(form.densidad_siembra)} />
-              ))}
-            </div>
-          </div>
-
-          {/* Coyoleo resumen */}
-          <div>
-            <span className="text-[11px] font-black uppercase tracking-wide text-[#2563A8] block mb-3">
-              Detalle por siembra · Coyoleo
-            </span>
-            <div className="space-y-3">
-              {form.grupos_coyoleo.map(g => (
-                <ResumenCoyoleo key={g.id} grupo={g} tabla={tabla} densidadGlobal={n(form.densidad_siembra)} />
-              ))}
-            </div>
           </div>
 
           {errorGuardar && (
@@ -525,7 +534,7 @@ export default function NuevaPlanificacion() {
           </button>
           <button onClick={handleGuardar} disabled={guardando}
             className="flex-1 rounded-2xl bg-[#1A4D2E] py-3.5 text-white font-bold text-[14px] flex items-center justify-center gap-1.5 shadow-lg disabled:opacity-60">
-            <Send className="h-4 w-4" /> {guardando ? "Enviando..." : "Enviar para aprobación"}
+            <Send className="h-4 w-4" /> {guardando ? "Enviando..." : esEdicion ? "Reenviar para aprobación" : "Enviar para aprobación"}
           </button>
         </div>
       </div>
@@ -540,12 +549,23 @@ export default function NuevaPlanificacion() {
           <ChevronLeft className="h-5 w-5" />
           <span className="text-[12px] font-bold">Inicio</span>
         </button>
-        <h1 className="text-white text-2xl font-black">Nueva planificación</h1>
+        <h1 className="text-white text-2xl font-black">{esEdicion ? "Editar planificación" : "Nueva planificación"}</h1>
         <p className="text-emerald-400 text-[12px]">Sector {form.sector}</p>
       </div>
 
+      {esEdicion && registroOriginal?.comentario_zona && (
+        <div className="mx-4 -mt-3 mb-3 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-2.5">
+          <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+          <p className="text-[12px] text-red-700 leading-relaxed">
+            <span className="font-black">Zona rechazó este registro:</span> "{registroOriginal.comentario_zona}"
+          </p>
+        </div>
+      )}
+
       {/* Banner densidad */}
-      <div className="mx-4 -mt-3 rounded-2xl bg-white border border-stone-200 shadow-sm px-4 py-3 space-y-2">
+      <div className={`mx-4 rounded-2xl bg-white border border-stone-200 shadow-sm px-4 py-3 space-y-2 ${
+        esEdicion && registroOriginal?.comentario_zona ? "mt-3" : "-mt-3"
+      }`}>
         <div className="flex items-center justify-between">
           <div>
             <span className="text-[9px] font-bold uppercase tracking-widest text-stone-400">Densidad calculada</span>

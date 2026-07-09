@@ -92,6 +92,20 @@ export function calcDensidadIndependiente(
   return n(densidadSiembra) * rpProm * n(pesoFruta);
 }
 
+/** Densidad Fs = Σ TM/Fs (todos los lotes de coyoleo) × 1000 / Σ HA (todos los lotes de coyoleo) */
+export function calcDensidadFs(lotes: { ha: string | number; tm_fs: string | number }[]): number {
+  const totHA = lotes.reduce((a, l) => a + n(l.ha), 0);
+  const totTmFs = lotes.reduce((a, l) => a + n(l.tm_fs), 0);
+  return totHA > 0 ? (totTmFs * 1000) / totHA : 0;
+}
+
+/** Sacos/Cy real = (Σ TM/Fs de todos los lotes de coyoleo × 1000 / 33) / Σ Coyoleros (emp+cont) */
+export function calcSacosCyReal(lotes: { tm_fs: string | number; coy_emp: string | number; coy_cont: string | number }[]): number {
+  const totTmFs = lotes.reduce((a, l) => a + n(l.tm_fs), 0);
+  const totCoyoleros = lotes.reduce((a, l) => a + n(l.coy_emp) + n(l.coy_cont), 0);
+  return totCoyoleros > 0 ? (totTmFs * 1000) / 33 / totCoyoleros : 0;
+}
+
 /** Color del semáforo según % cumplimiento */
 export type Semaforo = "verde" | "amarillo" | "rojo" | "neutral";
 export function semaforo(real: number, plan: number): Semaforo {

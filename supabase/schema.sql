@@ -112,6 +112,7 @@ create table public.lotes_coyoleo (
   ha          numeric(10,2) not null default 0,
   coy_emp     int not null default 0,
   coy_cont    int not null default 0,
+  tm_fs       numeric(10,2) not null default 0,
   created_at  timestamptz not null default now()
 );
 

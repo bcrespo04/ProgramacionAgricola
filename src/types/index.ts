@@ -52,6 +52,7 @@ export interface LoteCoyoleoForm {
   ha: string;
   coy_emp: string;
   coy_cont: string;
+  tm_fs: string;
 }
 
 export interface GrupoCoyoleoForm {
@@ -135,4 +136,5 @@ export interface LoteCoyoleo {
   ha: number;
   coy_emp: number;
   coy_cont: number;
+  tm_fs: number;
 }

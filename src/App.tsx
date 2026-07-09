@@ -19,6 +19,11 @@ export default function App() {
             <NuevaPlanificacion />
           </ProtectedRoute>
         } />
+        <Route path="/planificacion/:id/editar" element={
+          <ProtectedRoute roles={["coordinador","admin"]}>
+            <NuevaPlanificacion />
+          </ProtectedRoute>
+        } />
         <Route path="/planificacion/:id" element={
           <ProtectedRoute>
             <DetallePlanificacion />
