@@ -227,13 +227,24 @@ export async function buscarPlanParaFecha(sector: number, fechaEjecucion: string
   return data as PlanAprobado | null;
 }
 
-/** Trae la ejecución ya cargada de un coordinador para una fecha, si existe (para modo edición) */
+/** Indica si ya existe una ejecución de un coordinador para una fecha (para bloquear duplicados al crear) */
 export async function getEjecucionPorFecha(coordinadorId: string, fecha: string): Promise<EjecucionDiaria | null> {
   const { data, error } = await supabase
     .from("ejecucion_diaria")
     .select(`*, ejecucion_lotes(id, lote_cosecha_id)`)
     .eq("coordinador_id", coordinadorId)
     .eq("fecha", fecha)
+    .maybeSingle();
+  if (error) throw error;
+  return data as EjecucionDiaria | null;
+}
+
+/** Trae una ejecución específica por su id, con sus lotes (para modo edición explícito por ruta) */
+export async function getEjecucionPorId(id: string): Promise<EjecucionDiaria | null> {
+  const { data, error } = await supabase
+    .from("ejecucion_diaria")
+    .select(`*, ejecucion_lotes(id, lote_cosecha_id)`)
+    .eq("id", id)
     .maybeSingle();
   if (error) throw error;
   return data as EjecucionDiaria | null;

@@ -40,6 +40,11 @@ export default function App() {
             <EjecucionForm />
           </ProtectedRoute>
         } />
+        <Route path="/ejecucion/:id/editar" element={
+          <ProtectedRoute roles={["coordinador"]}>
+            <EjecucionForm />
+          </ProtectedRoute>
+        } />
         <Route path="/tabla-densidad" element={<ProtectedRoute><TablaDensidadView /></ProtectedRoute>} />
       </Routes>
     </AuthProvider>

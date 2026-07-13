@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Tractor, Send } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ChevronLeft, Tractor, Send, AlertCircle } from "lucide-react";
 import { useAuth } from "../lib/auth";
-import { buscarPlanParaFecha, getEjecucionPorFecha, guardarEjecucion } from "../lib/api";
+import { buscarPlanParaFecha, getEjecucionPorFecha, getEjecucionPorId, guardarEjecucion } from "../lib/api";
 import { NumInput, TextInput, Spinner } from "../components/ui";
 import { fmt } from "../lib/calculations";
 import type { EjecucionDiaria, EjecucionDiariaForm, PlanAprobado } from "../types";
@@ -35,10 +35,10 @@ function formVacio(fecha: string): EjecucionDiariaForm {
   };
 }
 
-function ejecucionAForm(e: EjecucionDiaria, fecha: string): EjecucionDiariaForm {
+function ejecucionAForm(e: EjecucionDiaria): EjecucionDiariaForm {
   const s = (v: number | null) => v != null ? String(v) : "";
   return {
-    fecha,
+    fecha: e.fecha,
     corteros: s(e.corteros),
     evacuadores: s(e.evacuadores),
     coyoleros: s(e.coyoleros),
@@ -56,6 +56,8 @@ function ejecucionAForm(e: EjecucionDiaria, fecha: string): EjecucionDiariaForm 
 }
 
 // ── Borrador local (evita perder datos si se cambia de ventana antes de guardar) ──
+// Solo se usa en el flujo de creación ("Agregar"); en edición se trabaja siempre
+// sobre el registro cargado por id.
 const draftKey = (coordinadorId: string, fecha: string) => `prog-agricola:ejecucion-borrador:${coordinadorId}:${fecha}`;
 
 function leerBorrador(coordinadorId: string, fecha: string): EjecucionDiariaForm | null {
@@ -79,13 +81,7 @@ function SelectorLotes({ plan, seleccionados, onToggle }: {
   seleccionados: string[];
   onToggle: (id: string) => void;
 }) {
-  if (!plan) {
-    return (
-      <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-3">
-        No hay un plan aprobado para esta fecha en tu sector.
-      </p>
-    );
-  }
+  if (!plan) return null;
   const grupos = plan.grupos_siembra ?? [];
   if (!grupos.some(g => (g.lotes_cosecha ?? []).length > 0)) {
     return (
@@ -123,20 +119,26 @@ function SelectorLotes({ plan, seleccionados, onToggle }: {
 export default function EjecucionForm() {
   const { usuario } = useAuth();
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const modoEdicion = !!id;
 
   const [fecha, setFecha] = useState(hoyISO());
   const [plan, setPlan] = useState<PlanAprobado | null>(null);
   const [cargandoPlan, setCargandoPlan] = useState(false);
-  const [ejecucionExistente, setEjecucionExistente] = useState<EjecucionDiaria | null>(null);
+  const [existeEjecucion, setExisteEjecucion] = useState(false);
   const [form, setForm] = useState<EjecucionDiariaForm>(() => formVacio(hoyISO()));
+
+  const [cargandoEjecucion, setCargandoEjecucion] = useState(modoEdicion);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [ejecucionOriginal, setEjecucionOriginal] = useState<EjecucionDiaria | null>(null);
 
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
-  const [guardadoOk, setGuardadoOk] = useState(false);
 
-  // Carga el plan aprobado y la ejecución ya existente para la fecha elegida.
-  // Si no hay ejecución guardada en el servidor, restaura el borrador local si existe.
+  // ── Modo "Agregar": carga el plan aprobado de la fecha elegida y verifica
+  // (solo para bloquear duplicados, no para precargar) si ya existe una ejecución.
   useEffect(() => {
+    if (modoEdicion) return;
     if (!usuario || !usuario.sector) return;
     let cancelado = false;
     setCargandoPlan(true);
@@ -146,48 +148,68 @@ export default function EjecucionForm() {
     ]).then(([planData, ejecData]) => {
       if (cancelado) return;
       setPlan(planData);
-      setEjecucionExistente(ejecData);
-      if (ejecData) {
-        borrarBorrador(usuario.id, fecha);
-        setForm(ejecucionAForm(ejecData, fecha));
-      } else {
-        setForm(leerBorrador(usuario.id, fecha) ?? formVacio(fecha));
-      }
+      setExisteEjecucion(!!ejecData);
+      setForm(leerBorrador(usuario.id, fecha) ?? formVacio(fecha));
     }).catch(e => {
       if (!cancelado) console.error(e);
     }).finally(() => {
       if (!cancelado) setCargandoPlan(false);
     });
     return () => { cancelado = true; };
-  }, [usuario, fecha]);
+  }, [modoEdicion, usuario, fecha]);
 
-  // Borrador automático (debounce ~500ms), mientras no esté en medio de una carga por cambio de fecha.
+  // Borrador automático (debounce ~500ms) — solo mientras el formulario de creación
+  // está habilitado (hay plan y no existe ya una ejecución para esa fecha).
   useEffect(() => {
-    if (!usuario || cargandoPlan) return;
+    if (modoEdicion || !usuario || cargandoPlan) return;
+    if (!plan || existeEjecucion) return;
     const t = setTimeout(() => guardarBorrador(usuario.id, form.fecha, form), 500);
     return () => clearTimeout(t);
-  }, [usuario, cargandoPlan, form]);
+  }, [modoEdicion, usuario, cargandoPlan, plan, existeEjecucion, form]);
 
-  function toggleLote(id: string) {
+  // ── Modo "Editar": carga la ejecución específica por id y el plan de su sector+fecha.
+  useEffect(() => {
+    if (!modoEdicion || !id) return;
+    let cancelado = false;
+    setCargandoEjecucion(true);
+    setErrorCarga(null);
+    getEjecucionPorId(id).then(async ejecData => {
+      if (cancelado) return;
+      if (!ejecData) { setErrorCarga("Ejecución no encontrada."); return; }
+      setEjecucionOriginal(ejecData);
+      setForm(ejecucionAForm(ejecData));
+      const planData = await buscarPlanParaFecha(ejecData.sector, ejecData.fecha);
+      if (cancelado) return;
+      setPlan(planData);
+    }).catch(e => {
+      if (!cancelado) setErrorCarga(e instanceof Error ? e.message : "No se pudo cargar la ejecución.");
+    }).finally(() => {
+      if (!cancelado) setCargandoEjecucion(false);
+    });
+    return () => { cancelado = true; };
+  }, [modoEdicion, id]);
+
+  function toggleLote(loteId: string) {
     setForm(f => ({
       ...f,
-      lotes_seleccionados: f.lotes_seleccionados.includes(id)
-        ? f.lotes_seleccionados.filter(x => x !== id)
-        : [...f.lotes_seleccionados, id],
+      lotes_seleccionados: f.lotes_seleccionados.includes(loteId)
+        ? f.lotes_seleccionados.filter(x => x !== loteId)
+        : [...f.lotes_seleccionados, loteId],
     }));
   }
 
   async function handleGuardar() {
-    if (!usuario || !usuario.sector) return;
+    if (!usuario) return;
+    const sector = modoEdicion ? ejecucionOriginal?.sector : usuario.sector;
+    if (!sector) return;
     setGuardando(true);
     setErrorGuardar(null);
-    setGuardadoOk(false);
     try {
-      await guardarEjecucion(usuario.id, usuario.sector, form, ejecucionExistente?.id);
-      borrarBorrador(usuario.id, form.fecha);
-      const ejecData = await getEjecucionPorFecha(usuario.id, form.fecha);
-      setEjecucionExistente(ejecData);
-      setGuardadoOk(true);
+      await guardarEjecucion(usuario.id, sector, form, modoEdicion ? id : undefined);
+      if (!modoEdicion) borrarBorrador(usuario.id, form.fecha);
+      navigate("/ejecucion", {
+        state: { mensaje: modoEdicion ? "Ejecución actualizada correctamente" : "Ejecución guardada correctamente" },
+      });
     } catch (e: any) {
       console.error(e);
       const msg = e?.message || e?.error_description || e?.hint || JSON.stringify(e);
@@ -196,6 +218,41 @@ export default function EjecucionForm() {
       setGuardando(false);
     }
   }
+
+  // ── Carga en modo edición ──
+  if (modoEdicion && cargandoEjecucion) {
+    return <div className="min-h-screen flex items-center justify-center bg-[#F7F5F0]"><Spinner /></div>;
+  }
+
+  if (modoEdicion && errorCarga) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-[#F7F5F0] px-6 text-center">
+        <AlertCircle className="h-8 w-8 text-stone-300" />
+        <p className="text-stone-500 text-[13px] font-bold">{errorCarga}</p>
+        <button onClick={() => navigate("/ejecucion")}
+          className="rounded-2xl bg-[#1A4D2E] px-5 py-2.5 text-white font-bold text-[13px]">
+          Volver al histórico
+        </button>
+      </div>
+    );
+  }
+
+  // Guarda de seguridad: solo el coordinador dueño puede editar su ejecución
+  // (RLS ya lo impone, pero se protege también en el frontend).
+  if (modoEdicion && ejecucionOriginal && usuario?.id !== ejecucionOriginal.coordinador_id) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-[#F7F5F0] px-6 text-center">
+        <AlertCircle className="h-8 w-8 text-stone-300" />
+        <p className="text-stone-500 text-[13px] font-bold">No tienes permiso para editar esta ejecución.</p>
+        <button onClick={() => navigate("/ejecucion")}
+          className="rounded-2xl bg-[#1A4D2E] px-5 py-2.5 text-white font-bold text-[13px]">
+          Volver al histórico
+        </button>
+      </div>
+    );
+  }
+
+  const mostrarFormulario = modoEdicion || (!cargandoPlan && !!plan && !existeEjecucion);
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] pb-10">
@@ -210,14 +267,14 @@ export default function EjecucionForm() {
             Programación Agrícola
           </span>
         </div>
-        <h1 className="text-white text-2xl font-black">Reporte diario</h1>
+        <h1 className="text-white text-2xl font-black">{modoEdicion ? "Editar reporte diario" : "Reporte diario"}</h1>
       </div>
 
       <div className="px-4 py-4">
         <div className="rounded-2xl bg-white border border-stone-200 px-4 py-4 space-y-4">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-black uppercase tracking-wide text-stone-600">Datos del día</span>
-            {ejecucionExistente && (
+            {modoEdicion && (
               <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                 Editando
               </span>
@@ -226,46 +283,57 @@ export default function EjecucionForm() {
 
           <label className="flex flex-col gap-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Fecha</span>
-            <input type="date" value={fecha}
+            <input type="date" value={modoEdicion ? form.fecha : fecha} disabled={modoEdicion}
               onChange={e => setFecha(e.target.value)}
-              className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-[14px] font-bold text-stone-900 outline-none focus:border-[#1A4D2E]" />
+              className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-[14px] font-bold text-stone-900 outline-none focus:border-[#1A4D2E] disabled:bg-stone-50 disabled:text-stone-500" />
           </label>
 
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-2">
-              Lotes cosechados
-            </span>
-            {cargandoPlan ? <Spinner /> : (
-              <SelectorLotes plan={plan} seleccionados={form.lotes_seleccionados} onToggle={toggleLote} />
-            )}
-          </div>
+          {!modoEdicion && cargandoPlan && <Spinner />}
 
-          <div className="grid grid-cols-2 gap-3">
-            {CAMPOS_NUM.map(c => (
-              <NumInput key={c.key} label={c.label} value={form[c.key]}
-                onChange={v => setForm(f => ({ ...f, [c.key]: v }))} />
-            ))}
-          </div>
-
-          <TextInput label="Lote adicional (no estaba en el plan)" value={form.lotes_extra}
-            onChange={v => setForm(f => ({ ...f, lotes_extra: v }))}
-            placeholder="Ej. Lote 20-15 cosechado sin plan" />
-
-          {errorGuardar && (
-            <p className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3.5 py-2.5">
-              {errorGuardar}
-            </p>
-          )}
-          {guardadoOk && (
-            <p className="text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2.5">
-              Ejecución guardada.
+          {!modoEdicion && !cargandoPlan && !plan && (
+            <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-3">
+              No hay programación para esta fecha en tu sector.
             </p>
           )}
 
-          <button onClick={handleGuardar} disabled={guardando}
-            className="w-full rounded-2xl bg-[#1A4D2E] py-3.5 text-white font-black text-[14px] flex items-center justify-center gap-1.5 shadow-lg shadow-[#1A4D2E]/20 disabled:opacity-60">
-            <Send className="h-4 w-4" /> {guardando ? "Guardando..." : ejecucionExistente ? "Actualizar" : "Guardar"}
-          </button>
+          {!modoEdicion && !cargandoPlan && !!plan && existeEjecucion && (
+            <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-3">
+              Ya existe una ejecución guardada para este día. Ve al histórico para editarla.
+            </p>
+          )}
+
+          {mostrarFormulario && (
+            <>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-2">
+                  Lotes cosechados
+                </span>
+                <SelectorLotes plan={plan} seleccionados={form.lotes_seleccionados} onToggle={toggleLote} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {CAMPOS_NUM.map(c => (
+                  <NumInput key={c.key} label={c.label} value={form[c.key]}
+                    onChange={v => setForm(f => ({ ...f, [c.key]: v }))} />
+                ))}
+              </div>
+
+              <TextInput label="Lote adicional (no estaba en el plan)" value={form.lotes_extra}
+                onChange={v => setForm(f => ({ ...f, lotes_extra: v }))}
+                placeholder="Ej. Lote 20-15 cosechado sin plan" />
+
+              {errorGuardar && (
+                <p className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3.5 py-2.5">
+                  {errorGuardar}
+                </p>
+              )}
+
+              <button onClick={handleGuardar} disabled={guardando}
+                className="w-full rounded-2xl bg-[#1A4D2E] py-3.5 text-white font-black text-[14px] flex items-center justify-center gap-1.5 shadow-lg shadow-[#1A4D2E]/20 disabled:opacity-60">
+                <Send className="h-4 w-4" /> {guardando ? "Guardando..." : modoEdicion ? "Actualizar" : "Guardar"}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

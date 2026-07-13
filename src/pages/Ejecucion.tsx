@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Tractor, Plus } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Tractor, Plus, Pencil, CheckCircle2, X } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { getEjecuciones } from "../lib/api";
 import { Spinner } from "../components/ui";
@@ -17,10 +17,12 @@ const lotesCosechadosStr = (e: EjecucionDiaria) =>
 export default function Ejecucion() {
   const { usuario } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const esCoord = usuario?.rol === "coordinador";
 
   const [historial, setHistorial] = useState<EjecucionDiaria[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [mensaje, setMensaje] = useState<string | null>(() => (location.state as { mensaje?: string } | null)?.mensaje ?? null);
 
   useEffect(() => {
     if (!usuario) return;
@@ -29,6 +31,20 @@ export default function Ejecucion() {
       .catch(console.error)
       .finally(() => setCargando(false));
   }, [usuario]);
+
+  // Limpia el mensaje del history state para que no reaparezca al recargar la página.
+  useEffect(() => {
+    if ((location.state as { mensaje?: string } | null)?.mensaje) {
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!mensaje) return;
+    const t = setTimeout(() => setMensaje(null), 5000);
+    return () => clearTimeout(t);
+  }, [mensaje]);
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] pb-24">
@@ -44,6 +60,15 @@ export default function Ejecucion() {
       </div>
 
       <div className="px-4 py-4">
+        {mensaje && (
+          <div className="mb-3 flex items-center gap-2.5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <p className="flex-1 text-[12px] font-bold text-emerald-700">{mensaje}</p>
+            <button onClick={() => setMensaje(null)} className="text-emerald-500 hover:text-emerald-700">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         {cargando ? (
           <Spinner />
         ) : historial.length === 0 ? (
@@ -51,7 +76,7 @@ export default function Ejecucion() {
         ) : (
           <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
             <div className="max-h-[75vh] overflow-y-auto overflow-x-auto">
-              <table className="w-full min-w-[1050px] text-[11px] tabular-nums border-collapse">
+              <table className="w-full min-w-[1100px] text-[11px] tabular-nums border-collapse">
                 <thead className="sticky top-0 z-10 bg-stone-100">
                   <tr className="text-[9px] font-bold uppercase tracking-wider text-stone-500">
                     <th className="px-3 py-2 text-left">Fecha</th>
@@ -69,6 +94,7 @@ export default function Ejecucion() {
                     <th className="px-3 py-2 text-right">Ha cosech.</th>
                     <th className="px-3 py-2 text-left">Lotes</th>
                     <th className="px-3 py-2 text-center">Lote extra</th>
+                    {esCoord && <th className="px-3 py-2 text-center">Editar</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
@@ -97,6 +123,14 @@ export default function Ejecucion() {
                             ? <span title={e.lotes_extra} className="text-amber-500 font-black">●</span>
                             : <span className="text-stone-300">—</span>}
                         </td>
+                        {esCoord && (
+                          <td className="px-3 py-2 text-center">
+                            <button onClick={() => navigate(`/ejecucion/${e.id}/editar`)}
+                              className="text-stone-400 hover:text-[#1A4D2E] transition">
+                              <Pencil className="h-3.5 w-3.5 inline" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
